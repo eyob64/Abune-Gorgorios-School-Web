@@ -1,0 +1,6 @@
+{
+  "name": "Abune Gorgorios School",
+  "description": "Official website for Abune Gorgorios School - Shaping Minds, Building Futures. Features comprehensive student, faculty, and event management.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

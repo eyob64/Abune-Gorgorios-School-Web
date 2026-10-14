@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+:root {
+  --theme-brand: #1e40af;
+  --theme-brand-dark: #1e3a8a;
+  --theme-brand-light: #eff6ff;
+  --theme-brand-text: #1d4ed8;
+  --theme-brand-border: #bfdbfe;
+  --theme-accent: #f59e0b;
+  --theme-accent-dark: #d97706;
+  --theme-accent-light: #fef3c7;
+  --theme-gradient-start: #1e3a8a;
+  --theme-gradient-end: #3b82f6;
+  --theme-name: "Royal Navy & Gold";
+}
+
+[data-theme="royal-navy"] {
+  --theme-brand: #1e40af;
+  --theme-brand-dark: #1e3a8a;
+  --theme-brand-light: #eff6ff;
+  --theme-brand-text: #1d4ed8;
+  --theme-brand-border: #bfdbfe;
+  --theme-accent: #f59e0b;
+  --theme-accent-dark: #d97706;
+  --theme-accent-light: #fef3c7;
+  --theme-gradient-start: #1e3a8a;
+  --theme-gradient-end: #3b82f6;
+  --theme-name: "Royal Navy & Gold";
+  --color-blue-950: #172554;
+  --color-blue-900: #1e3a8a;
+  --color-blue-800: #1e40af;
+  --color-blue-700: #1d4ed8;
+  --color-blue-600: #2563eb;
+  --color-blue-500: #3b82f6;
+  --color-blue-400: #60a5fa;
+  --color-blue-200: #bfdbfe;
+  --color-blue-100: #dbeafe;
+  --color-blue-50: #eff6ff;
+}
+
+[data-theme="emerald"] {
+  --theme-brand: #059669;
+  --theme-brand-dark: #064e3b;
+  --theme-brand-light: #ecfdf5;
+  --theme-brand-text: #047857;
+  --theme-brand-border: #a7f3d0;
+  --theme-accent: #d97706;
+  --theme-accent-dark: #b45309;
+  --theme-accent-light: #fffbeb;
+  --theme-gradient-start: #064e3b;
+  --theme-gradient-end: #10b981;
+  --theme-name: "Highland Emerald & Ochre";
+  --color-blue-950: #022c22;
+  --color-blue-900: #064e3b;
+  --color-blue-800: #065f46;
+  --color-blue-700: #047857;
+  --color-blue-600: #059669;
+  --color-blue-500: #10b981;
+  --color-blue-400: #34d399;
+  --color-blue-200: #a7f3d0;
+  --color-blue-100: #d1fae5;
+  --color-blue-50: #ecfdf5;
+}
+
+[data-theme="modern-indigo"] {
+  --theme-brand: #4f46e5;
+  --theme-brand-dark: #312e81;
+  --theme-brand-light: #eef2ff;
+  --theme-brand-text: #4338ca;
+  --theme-brand-border: #c7d2fe;
+  --theme-accent: #06b6d4;
+  --theme-accent-dark: #0891b2;
+  --theme-accent-light: #ecfeff;
+  --theme-gradient-start: #312e81;
+  --theme-gradient-end: #06b6d4;
+  --theme-name: "Modern Tech Indigo & Cyan";
+  --color-blue-950: #1e1b4b;
+  --color-blue-900: #312e81;
+  --color-blue-800: #3730a3;
+  --color-blue-700: #4338ca;
+  --color-blue-600: #4f46e5;
+  --color-blue-500: #6366f1;
+  --color-blue-400: #818cf8;
+  --color-blue-200: #c7d2fe;
+  --color-blue-100: #e0e7ff;
+  --color-blue-50: #eef2ff;
+}
+
+[data-theme="crimson"] {
+  --theme-brand: #be123c;
+  --theme-brand-dark: #881337;
+  --theme-brand-light: #fff1f2;
+  --theme-brand-text: #9f1239;
+  --theme-brand-border: #fecdd3;
+  --theme-accent: #d97706;
+  --theme-accent-dark: #b45309;
+  --theme-accent-light: #fffbeb;
+  --theme-gradient-start: #881337;
+  --theme-gradient-end: #f43f5e;
+  --theme-name: "Imperial Crimson & Sandstone";
+  --color-blue-950: #4c0519;
+  --color-blue-900: #881337;
+  --color-blue-800: #9f1239;
+  --color-blue-700: #be123c;
+  --color-blue-600: #e11d48;
+  --color-blue-500: #f43f5e;
+  --color-blue-400: #fb7185;
+  --color-blue-200: #fecdd3;
+  --color-blue-100: #ffe4e6;
+  --color-blue-50: #fff1f2;
+}
+
+/* Global Dynamic Theme utility classes */
+.bg-theme-brand {
+  background-color: var(--theme-brand);
+}
+.bg-theme-brand-dark {
+  background-color: var(--theme-brand-dark);
+}
+.bg-theme-brand-light {
+  background-color: var(--theme-brand-light);
+}
+.text-theme-brand {
+  color: var(--theme-brand-text);
+}
+.border-theme-brand {
+  border-color: var(--theme-brand-border);
+}
+.bg-theme-gradient {
+  background-image: linear-gradient(135deg, var(--theme-gradient-start) 0%, var(--theme-gradient-end) 100%);
+}
