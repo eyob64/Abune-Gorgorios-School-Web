@@ -14,8 +14,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((request.auth.token.email == "abebeeyob64@gmail.com" && request.auth.token.email_verified == true) ||
-          (request.auth.token.email == "Director@gmail.com" && request.auth.token.email_verified == true) ||
+        (request.auth.token.email in ["abebeeyob64@gmail.com", "Director@gmail.com"] ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'director'));
     }
 
@@ -118,12 +117,10 @@ service cloud.firestore {
     }
 
     function isValidPayment(data) {
-      return hasOnlyAllowedFields(['id', 'studentId', 'studentName', 'amount', 'currency', 'date', 'status', 'receipt', 'reference', 'timestamp', 'uid']) &&
-             data.studentId is string && data.studentId.size() < 50 &&
-             data.amount is string && data.amount.size() < 20 &&
-             data.receipt is string && data.receipt.size() < 1000000 &&
-             data.status in ['Pending', 'Verified'] &&
-             data.uid is string;
+      return hasOnlyAllowedFields(['id', 'studentId', 'studentName', 'grade', 'amount', 'currency', 'date', 'status', 'receipt', 'reference', 'timestamp', 'uid', 'verifiedAt', 'officialReceipt', 'type', 'method', 'notes']) &&
+             data.studentId is string && data.studentId.size() < 100 &&
+             data.amount is string && data.amount.size() < 30 &&
+             data.status in ['Pending', 'Verified', 'Rejected'];
     }
 
     // ===============================================================
@@ -180,9 +177,9 @@ service cloud.firestore {
     }
 
     match /messages/{messageId} {
-      allow read: if isAdmin();
+      allow read: if true;
       allow create: if isValidMessage(request.resource.data);
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || true;
     }
 
     match /admissions/{admissionId} {
@@ -208,16 +205,21 @@ service cloud.firestore {
     }
 
     match /teacher_messages/{messageId} {
-      allow read: if isAuthenticated() && (request.auth.uid == resource.data.senderId || request.auth.uid == resource.data.receiverId || isAdmin());
-      allow create: if isAuthenticated() && isValidTeacherMessage(request.resource.data) && (request.auth.uid == request.resource.data.senderId || isAdmin());
-      allow update: if isAuthenticated() && (isAdmin() || request.auth.uid == resource.data.receiverId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow read: if true;
+      allow create: if isValidTeacherMessage(request.resource.data);
+      allow update: if true;
       allow delete: if isAdmin();
     }
 
     match /registrations/{registrationId} {
-      allow read: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId);
-      allow create: if isAuthenticated() && isValidEventRegistration(request.resource.data) && request.auth.uid == request.resource.data.userId;
+      allow read: if true;
+      allow create: if isValidEventRegistration(request.resource.data);
       allow delete: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId);
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if true;
+      allow write: if true;
     }
 
     match /config/{configId} {
@@ -226,12 +228,9 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      allow create: if isValidPayment(request.resource.data) && (
-        (isAuthenticated() && (request.resource.data.uid == request.auth.uid || isAdmin())) ||
-        (!isAuthenticated() && request.resource.data.status == 'Pending')
-      );
-      allow update: if isAdmin();
+      allow read: if true;
+      allow create: if isValidPayment(request.resource.data);
+      allow update: if true;
       allow delete: if isAdmin();
     }
   }

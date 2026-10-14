@@ -169,7 +169,7 @@ export const ReportCardModal: React.FC<ReportCardModalProps> = ({
 
   const handleSubjectNameChange = (id: string, newName: string) => {
     setSubjects(prev =>
-      prev.map(sub => (sub.id === id ? { ...sub: sub, subjectName: newName } : sub))
+      prev.map(sub => (sub.id === id ? { ...sub, subjectName: newName } : sub))
     );
   };
 

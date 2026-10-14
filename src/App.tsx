@@ -14,6 +14,8 @@ import { ThemeDesignModal, THEME_OPTIONS } from './components/ThemeDesignModal';
 import { TuitionFeeTrendChart } from './components/TuitionFeeTrendChart';
 import { DirectorAiChatbot } from './components/DirectorAiChatbot';
 import { ReportCardModal, OfficialReportCard } from './components/ReportCardModal';
+import { GradebookPdfExportModal } from './components/GradebookPdfExportModal';
+import { AttendanceAnalytics, DailyAttendanceRecord } from './components/AttendanceAnalytics';
 import html2canvas from 'html2canvas';
 
 // Firebase imports
@@ -814,6 +816,9 @@ import {
   Palette,
   ShieldCheck,
   TrendingUp,
+  FileDown,
+  Activity,
+  BarChart3,
 } from 'lucide-react';
 
 type Page = 'Home' | 'About' | 'Admissions' | 'Academics' | 'Faculty' | 'Blog' | 'Events' | 'Contact' | 'Dashboard' | 'Payment';
@@ -1304,6 +1309,9 @@ export default function App() {
   // Floating Director AI Chatbot State
   const [isDirectorAiFloatingOpen, setIsDirectorAiFloatingOpen] = useState(false);
 
+  // Gradebook PDF Export State
+  const [isGradebookPdfModalOpen, setIsGradebookPdfModalOpen] = useState(false);
+
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   const [studentIdSearchQuery, setStudentIdSearchQuery] = useState('');
   const [studentGradeFilter, setStudentGradeFilter] = useState('All');
@@ -1761,9 +1769,14 @@ export default function App() {
 
   useEffect(() => {
     if (isLoggedIn && userRole === 'Director') {
-      const q = query(collection(db, 'payments'), orderBy('timestamp', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setAllPayments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const unsubscribe = onSnapshot(collection(db, 'payments'), (snapshot) => {
+        const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        list.sort((a: any, b: any) => {
+          const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp || new Date(a.date || 0).getTime() || 0);
+          const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp || new Date(b.date || 0).getTime() || 0);
+          return timeB - timeA;
+        });
+        setAllPayments(list);
       }, (error) => {
         handleFirestoreError(error, OperationType.LIST, 'payments');
       });
@@ -2826,20 +2839,23 @@ export default function App() {
     setIsSubmittingPayment(true);
     try {
       const paymentId = Date.now().toString();
+      const studentId = paymentStudentId || userData?.studentId || userData?.id || 'STUDENT';
+      const studentName = userData?.name || 'Student';
       const paymentData = {
         id: paymentId,
-        studentId: paymentStudentId || userData.studentId || userData.id,
-        studentName: userData.name,
-        grade: userData.grade || '',
-        amount: paymentAmount,
-        currency: t.payment.currency,
+        studentId: studentId.toString(),
+        studentName: studentName.toString(),
+        grade: (userData?.grade || '').toString(),
+        amount: (paymentAmount || '0').toString(),
+        currency: (t.payment.currency || 'ETB').toString(),
         date: new Date().toLocaleDateString(),
         status: 'Pending',
         receipt: paymentReceipt,
-        reference: paymentReference,
+        reference: (paymentReference || ('PAY-' + Date.now().toString().slice(-6))).toString(),
         timestamp: serverTimestamp(),
-        uid: userData.uid
+        uid: (userData?.uid || auth.currentUser?.uid || userData?.id || studentId || 'guest-uid').toString()
       };
+      setAllPayments(prev => [paymentData, ...prev.filter(p => p.id !== paymentId)]);
       await setDoc(doc(db, 'payments', paymentId), paymentData);
       alert(t.payment.uploadSuccess);
       setIsPaymentModalOpen(false);
@@ -2952,9 +2968,10 @@ export default function App() {
         receipt: paymentReceipt,
         reference: 'GUEST-' + Date.now().toString().slice(-6),
         timestamp: serverTimestamp(),
-        uid: (searchedStudent as any).uid || ''
+        uid: ((searchedStudent as any).uid || searchedStudent.id || 'guest-uid').toString()
       };
 
+      setAllPayments(prev => [newPayment, ...prev.filter(p => p.id !== paymentId)]);
       await setDoc(doc(db, 'payments', paymentId), newPayment);
       alert(t.payment.uploadSuccess);
       setPaymentAmount('');
@@ -3653,14 +3670,18 @@ export default function App() {
                     <p className="text-xl text-slate-600 leading-relaxed mb-10">
                       {t.about.journeyDesc}
                     </p>
-                    <div className="grid grid-cols-2 gap-8">
+                    <div className="grid grid-cols-2 gap-6">
                       <div className="p-6 bg-white rounded-3xl shadow-sm border border-slate-100">
-                        <div className="text-4xl font-black text-blue-600 mb-2">{lang === 'en' ? '30+' : '30+'}</div>
-                        <div className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">{lang === 'en' ? 'Years of Excellence' : 'የላቀ ውጤት ዓመታት'}</div>
+                        <div className="text-4xl font-black text-blue-600 mb-1">{students.length}</div>
+                        <div className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
+                          {lang === 'en' ? 'Enrolled Students' : 'የተመዘገቡ ተማሪዎች'}
+                        </div>
                       </div>
                       <div className="p-6 bg-white rounded-3xl shadow-sm border border-slate-100">
-                        <div className="text-4xl font-black text-blue-600 mb-2">5k+</div>
-                        <div className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">{lang === 'en' ? 'Graduates' : 'ምሩቃን'}</div>
+                        <div className="text-4xl font-black text-emerald-600 mb-1">{teachers.length + faculty.length}</div>
+                        <div className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
+                          {lang === 'en' ? 'Faculty & Teachers' : 'መምህራን እና ሰራተኞች'}
+                        </div>
                       </div>
                     </div>
                   </motion.div>
@@ -3670,13 +3691,19 @@ export default function App() {
                     viewport={{ once: true }}
                     className="lg:w-1/2 relative"
                   >
-                    <div className="aspect-square rounded-[4rem] overflow-hidden shadow-2xl relative z-10">
-                      <img 
-                        src="https://images.unsplash.com/photo-1541339907198-e08756ebafe3?q=80&w=2070&auto=format&fit=crop" 
-                        alt="School journey" 
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
+                    <div className="aspect-square rounded-[4rem] overflow-hidden shadow-2xl relative z-10 bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 p-12 flex flex-col items-center justify-center text-center border border-white/10">
+                      <div className="w-24 h-24 rounded-3xl bg-gradient-to-tr from-amber-500 to-amber-300 flex items-center justify-center text-slate-950 font-black shadow-xl shadow-amber-500/20 mb-6">
+                        <GraduationCap className="w-12 h-12" />
+                      </div>
+                      <h3 className="text-2xl font-black text-white mb-2">ABUNE GORGORIOS</h3>
+                      <p className="text-amber-400 font-bold text-xs uppercase tracking-widest mb-4">
+                        {lang === 'en' ? 'Ministry of Education Accredited' : 'በትምህርት ሚኒስቴር እውቅና ያለው'}
+                      </p>
+                      <p className="text-slate-300 text-sm max-w-sm leading-relaxed">
+                        {lang === 'en' 
+                          ? 'Dedicated to holistic education, moral discipline, and intellectual leadership.' 
+                          : 'ለንቁ ሁለንተናዊ ትምህርት፣ ስነ-ምግባር እና የአመራር ብቃት የቆመ።'}
+                      </p>
                     </div>
                     <div className="absolute -top-10 -right-10 w-64 h-64 bg-blue-600 rounded-full blur-3xl opacity-20 -z-0"></div>
                     <div className="absolute -bottom-10 -left-10 w-64 h-64 bg-emerald-600 rounded-full blur-3xl opacity-20 -z-0"></div>
@@ -4300,128 +4327,54 @@ export default function App() {
           </section>
         );
       case 'Academics':
-        const filteredImages = galleryFilter === 'All' 
-          ? galleryImages 
-          : galleryImages.filter(img => img.category === galleryFilter);
-
         return (
           <section className="py-24 bg-white min-h-[60vh]">
             <div className="container mx-auto px-6">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-center max-w-4xl mx-auto mb-20"
-                >
-                  <h1 className="text-5xl md:text-6xl font-bold text-[#0f172a] mb-8">{t.nav.academics}</h1>
-                  <p className="text-xl text-slate-600 leading-relaxed">
-                    {lang === 'en' 
-                      ? 'Our rigorous academic programs are designed to challenge and inspire. Explore our curriculum, world-class facilities, and vibrant student life.'
-                      : 'የእኛ ጥብቅ የትምህርት ፕሮግራሞች ተማሪዎችን ለመፈተን እና ለማነሳሳት የተነደፉ ናቸው። ስርአተ ትምህርታችንን፣ አለም አቀፍ ደረጃቸውን የጠበቁ መገልገያዎቻችንን እና ደማቅ የተማሪ ህይወታችንን ያስሱ።'}
-                  </p>
-                </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center max-w-4xl mx-auto mb-16"
+              >
+                <h1 className="text-5xl md:text-6xl font-bold text-[#0f172a] mb-8">{t.nav.academics}</h1>
+                <p className="text-xl text-slate-600 leading-relaxed">
+                  {lang === 'en' 
+                    ? 'Our rigorous academic programs are designed to challenge and inspire. Explore our curriculum, specialized streams, and learning pathways.'
+                    : 'የእኛ ጥብቅ የትምህርት ፕሮግራሞች ተማሪዎችን ለመፈተን እና ለማነሳሳት የተነደፉ ናቸው። ስርአተ ትምህርታችንን እና የትምህርት ዘርፎቻችንን ያስሱ።'}
+                </p>
+              </motion.div>
 
-                {/* Gallery Section */}
-                <div className="mt-20">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12">
-                    <div>
-                      <h2 className="text-3xl font-bold text-slate-900 mb-2">{lang === 'en' ? 'Campus Gallery' : 'የግቢው ጋለሪ'}</h2>
-                      <p className="text-slate-500">{lang === 'en' ? 'Take a look at our facilities and student activities.' : 'መገልገያዎቻችንን እና የተማሪዎችን እንቅስቃሴ ይመልከቱ።'}</p>
+              {/* Core Academic Curricula & Streams */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {[
+                  {
+                    title: lang === 'en' ? 'Natural & Physical Sciences' : 'የተፈጥሮ እና ፊዚካል ሳይንስ',
+                    desc: lang === 'en' ? 'Advanced physics, chemistry, biology, and laboratory research methodology for grades 9-12.' : 'የላቀ ፊዚክስ፣ ኬሚስትሪ፣ ባዮሎጂ እና የላብራቶሪ ምርምር ዘዴዎች።',
+                    icon: <BookOpen className="w-8 h-8 text-blue-600" />,
+                    bg: 'bg-blue-50'
+                  },
+                  {
+                    title: lang === 'en' ? 'Social Sciences & Humanities' : 'የማህበራዊ ሳይንስ እና ሂውማኒቲስ',
+                    desc: lang === 'en' ? 'History, geography, civics, literature, and ethical education fostering critical thought.' : 'ታሪክ፣ ጂኦግራፊ፣ ስነ-ዜጋ፣ ስነ-ጽሑፍ እና ስነ-ምግባር ትምህርት።',
+                    icon: <Globe className="w-8 h-8 text-emerald-600" />,
+                    bg: 'bg-emerald-50'
+                  },
+                  {
+                    title: lang === 'en' ? 'Technology & Applied Mathematics' : 'ቴክኖሎጂ እና ተግባራዊ ሂሳብ',
+                    desc: lang === 'en' ? 'Information technology, computational thinking, calculus, and practical problem solving.' : 'ኢንፎርሜሽን ቴክኖሎጂ፣ ኮምፒውቲሽናል አስተሳሰብ እና ተግባራዊ የሂሳብ ትምህርት።',
+                    icon: <Award className="w-8 h-8 text-amber-600" />,
+                    bg: 'bg-amber-50'
+                  }
+                ].map((curriculum, i) => (
+                  <div key={i} className="p-8 rounded-3xl bg-slate-50 border border-slate-100 hover:shadow-lg transition-all">
+                    <div className={`w-16 h-16 rounded-2xl ${curriculum.bg} flex items-center justify-center mb-6 shadow-xs`}>
+                      {curriculum.icon}
                     </div>
-                    
-                    <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border border-slate-200 self-start">
-                      {(['All', 'Facility', 'Activity'] as const).map((filter) => (
-                        <button
-                          key={filter}
-                          onClick={() => setGalleryFilter(filter)}
-                          className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                            galleryFilter === filter 
-                              ? 'bg-white text-blue-600 shadow-sm' 
-                              : 'text-slate-500 hover:text-slate-700'
-                          }`}
-                        >
-                          {filter === 'All' 
-                            ? t.dashboard.viewAll
-                            : (lang === 'en' ? filter + 's' : (filter === 'Facility' ? 'መገልገያዎች' : 'እንቅስቃሴዎች'))}
-                        </button>
-                      ))}
-                    </div>
+                    <h3 className="text-xl font-bold text-slate-900 mb-3">{curriculum.title}</h3>
+                    <p className="text-slate-600 text-sm leading-relaxed">{curriculum.desc}</p>
                   </div>
-
-                <motion.div 
-                  layout
-                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
-                >
-                  <AnimatePresence mode="popLayout">
-                    {filteredImages.map((image) => (
-                      <motion.div
-                        key={image.id}
-                        layout
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        transition={{ duration: 0.3 }}
-                        onClick={() => setSelectedGalleryImage(image)}
-                        className="group relative aspect-square rounded-3xl overflow-hidden cursor-pointer shadow-sm hover:shadow-xl transition-all"
-                      >
-                        <img 
-                          src={image.url} 
-                          alt={image.title} 
-                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                          referrerPolicy="no-referrer"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-end p-6">
-                          <span className="text-blue-400 text-xs font-bold uppercase tracking-widest mb-2">{image.category}</span>
-                          <h4 className="text-white font-bold text-lg leading-tight mb-4">{image.title}</h4>
-                          <div className="w-10 h-10 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white">
-                            <Maximize2 className="w-5 h-5" />
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                </motion.div>
+                ))}
               </div>
             </div>
-
-            {/* Lightbox Modal */}
-            <AnimatePresence>
-              {selectedGalleryImage && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-12">
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={() => setSelectedGalleryImage(null)}
-                    className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
-                  />
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className="relative w-full max-w-6xl aspect-video md:aspect-auto md:max-h-full bg-black rounded-3xl overflow-hidden shadow-2xl"
-                  >
-                    <button 
-                      onClick={() => setSelectedGalleryImage(null)}
-                      className="absolute top-6 right-6 z-10 p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full text-white transition-all"
-                    >
-                      <X className="w-6 h-6" />
-                    </button>
-                    
-                    <img 
-                      src={selectedGalleryImage.url} 
-                      alt={selectedGalleryImage.title} 
-                      className="w-full h-full object-contain"
-                      referrerPolicy="no-referrer"
-                    />
-                    
-                    <div className="absolute bottom-0 left-0 w-full p-8 md:p-12 bg-gradient-to-t from-black/80 to-transparent">
-                      <span className="text-blue-400 text-sm font-bold uppercase tracking-widest mb-2 block">{selectedGalleryImage.category}</span>
-                      <h3 className="text-white text-2xl md:text-4xl font-bold">{selectedGalleryImage.title}</h3>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
           </section>
         );
       case 'Faculty':
@@ -5367,28 +5320,55 @@ export default function App() {
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {userRole === 'Director' && (
-                      <div className="flex flex-wrap gap-2">
-                        {(['Overview', 'Students', 'Faculty', 'TeacherAccounts', 'AdminTools', 'Calendar', 'Payments'] as const).map((tab) => (
-                          <button
-                            key={tab}
-                            onClick={() => setDashboardTab(tab)}
-                            className={`px-5 py-2.5 rounded-2xl text-sm font-bold transition-all flex items-center gap-2 ${
-                              dashboardTab === tab 
-                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' 
-                                : 'bg-white text-slate-500 hover:bg-slate-50 border border-slate-100'
-                            }`}
-                          >
-                            {tab === 'Overview' && <LayoutGrid className="w-4 h-4" />}
-                            {tab === 'Students' && <Users className="w-4 h-4" />}
-                            {tab === 'Faculty' && <Award className="w-4 h-4" />}
-                            {tab === 'TeacherAccounts' && <Shield className="w-4 h-4" />}
-                            {tab === 'AdminTools' && <Settings className="w-4 h-4" />}
-                            {tab === 'Calendar' && <CalendarIcon className="w-4 h-4" />}
-                            {tab === 'Payments' && <CreditCard className="w-4 h-4" />}
-                            {lang === 'en' ? (tab === 'TeacherAccounts' ? 'Teacher Accounts' : tab) : (tab === 'Overview' ? 'አጠቃላይ' : tab === 'Students' ? 'ተማሪዎች' : tab === 'Faculty' ? 'መምህራን' : tab === 'TeacherAccounts' ? 'የመምህራን አካውንት' : tab === 'AdminTools' ? 'አስተዳደር' : tab === 'Calendar' ? 'ካላንደር' : 'ክፍያ')}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingStudent(true);
+                          setNewStudent(prev => ({
+                            ...prev,
+                            id: generateNextStudentId(),
+                            password: 'AGS@' + Math.floor(1000 + Math.random() * 9000)
+                          }));
+                        }}
+                        className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                        title={lang === 'en' ? 'Add real student with ID and password' : 'አዲስ ተማሪ ይመዝግቡ'}
+                      >
+                        <UserPlus className="w-4 h-4 text-emerald-100" />
+                        <span>{lang === 'en' ? 'Add Student' : 'ተማሪ ጨምር'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingTeacherAccount(true);
+                          setIsEditingTeacherAccount(false);
+                          setNewTeacherAccount(prev => ({
+                            ...prev,
+                            teacherId: generateNextTeacherId(),
+                            password: generatePassword()
+                          }));
+                        }}
+                        className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                        title={lang === 'en' ? 'Add real teacher account for portal login' : 'አዲስ መምህር ይመዝግቡ'}
+                      >
+                        <Award className="w-4 h-4 text-indigo-100" />
+                        <span>{lang === 'en' ? 'Add Teacher' : 'መምህር ጨምር'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setDashboardTab('AIAssistant')}
+                        className={`px-4 py-2.5 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                          dashboardTab === 'AIAssistant'
+                            ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-amber-200 ring-2 ring-amber-400'
+                            : 'bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 shadow-xs'
+                        }`}
+                      >
+                        <Sparkles className="w-4 h-4 text-amber-500" />
+                        <span>{lang === 'en' ? 'AI Assistant' : 'AI ረዳት'}</span>
+                      </button>
+                    </div>
                   )}
                   {userRole === 'Student' && (
                     <div className="flex gap-2">
@@ -5441,11 +5421,11 @@ export default function App() {
 
               {userRole === 'Director' && (
                 <div className="flex flex-wrap gap-2 mb-12 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm overflow-x-auto no-scrollbar relative">
-                  {(['Overview', 'AdminTools', 'Students', 'Gradebook', 'Faculty', 'Calendar', 'News', 'Messages', 'Admissions', 'Payments', 'AIAssistant'] as const).map((tab) => (
+                  {(['Overview', 'Students', 'AttendanceAnalytics', 'Gradebook', 'Admissions', 'Payments', 'Faculty', 'TeacherAccounts', 'AdminTools', 'Calendar', 'News', 'Messages', 'AIAssistant'] as const).map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setDashboardTab(tab as any)}
-                      className={`relative px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap z-10 ${
+                      className={`relative px-5 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap z-10 cursor-pointer ${
                         dashboardTab === tab 
                           ? 'text-white' 
                           : 'text-slate-500 hover:bg-slate-50'
@@ -5460,26 +5440,30 @@ export default function App() {
                       )}
                       <span className="relative z-20 flex items-center gap-2">
                         {tab === 'Overview' && <LayoutGrid className="w-4 h-4" />}
-                        {tab === 'AdminTools' && <Settings className="w-4 h-4" />}
                         {tab === 'Students' && <Users className="w-4 h-4" />}
+                        {tab === 'AttendanceAnalytics' && <Activity className="w-4 h-4 text-emerald-400" />}
                         {tab === 'Gradebook' && <ClipboardList className="w-4 h-4" />}
+                        {tab === 'Admissions' && <UserPlus className="w-4 h-4" />}
+                        {tab === 'Payments' && <CreditCard className="w-4 h-4" />}
                         {tab === 'Faculty' && <Award className="w-4 h-4" />}
+                        {tab === 'TeacherAccounts' && <Shield className="w-4 h-4" />}
+                        {tab === 'AdminTools' && <Settings className="w-4 h-4" />}
                         {tab === 'Calendar' && <CalendarIcon className="w-4 h-4" />}
                         {tab === 'News' && <Newspaper className="w-4 h-4" />}
                         {tab === 'Messages' && <MessageSquare className="w-4 h-4" />}
-                        {tab === 'Admissions' && <UserPlus className="w-4 h-4" />}
-                        {tab === 'Payments' && <CreditCard className="w-4 h-4" />}
                         {tab === 'AIAssistant' && <Sparkles className="w-4 h-4 text-amber-300" />}
                         {tab === 'Overview' ? (lang === 'en' ? 'Overview' : 'አጠቃላይ እይታ') :
-                         tab === 'AdminTools' ? (lang === 'en' ? 'Admin Tools' : 'የአስተዳደር መሳሪያዎች') :
                          tab === 'Students' ? (lang === 'en' ? 'Students' : 'ተማሪዎች') :
+                         tab === 'AttendanceAnalytics' ? (lang === 'en' ? 'Attendance Analytics' : 'የክትትል ትንተና') :
                          tab === 'Gradebook' ? (lang === 'en' ? 'Gradebook' : 'የውጤት መዝገብ') :
+                         tab === 'Admissions' ? (lang === 'en' ? 'Admissions' : 'ምዝገባ') :
+                         tab === 'Payments' ? (lang === 'en' ? 'Payments' : 'ክፍያዎች') :
                          tab === 'Faculty' ? (lang === 'en' ? 'Faculty' : 'መምህራን') :
+                         tab === 'TeacherAccounts' ? (lang === 'en' ? 'Teacher Accounts' : 'የመምህራን አካውንት') :
+                         tab === 'AdminTools' ? (lang === 'en' ? 'Admin Tools' : 'የአስተዳደር መሳሪያዎች') :
                          tab === 'Calendar' ? (lang === 'en' ? 'Calendar' : 'ካላንደር') :
                          tab === 'News' ? (lang === 'en' ? 'News & Blog' : 'ዜና እና ብሎግ') :
                          tab === 'Messages' ? (lang === 'en' ? 'Messages' : 'መልዕክቶች') :
-                         tab === 'Admissions' ? (lang === 'en' ? 'Admissions' : 'ምዝገባ') :
-                         tab === 'Payments' ? (lang === 'en' ? 'Payments' : 'ክፍያዎች') :
                          (lang === 'en' ? 'AI Assistant' : 'AI ረዳት')}
                       </span>
                     </button>
@@ -6591,7 +6575,7 @@ export default function App() {
                                   }}
                                   className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 text-sm whitespace-nowrap"
                                 >
-                                  <Plus className="w-4 h-4" /> {lang === 'en' ? 'Add Payment' : 'ክፍያ ጨምር'}
+                                  <Plus className="w-4 h-4" /> {lang === 'en' ? 'Submit & Add Payment' : 'ክፍያ አስገባ እና መዝግብ'}
                                 </button>
                               </div>
                             </div>
@@ -7010,6 +6994,32 @@ export default function App() {
                       </motion.div>
                       )}
 
+                      {dashboardTab === 'AttendanceAnalytics' && (
+                        <motion.div
+                          key="AttendanceAnalytics"
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -10 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <AttendanceAnalytics
+                            students={students}
+                            lang={lang}
+                            isDirector={true}
+                            onSaveAttendance={async (record) => {
+                              try {
+                                await setDoc(doc(db, 'attendance', record.id), {
+                                  ...record,
+                                  timestamp: serverTimestamp()
+                                });
+                              } catch (e) {
+                                console.warn('Attendance record save:', e);
+                              }
+                            }}
+                          />
+                        </motion.div>
+                      )}
+
                       {dashboardTab === 'Gradebook' && (
                         <motion.div
                           key="Gradebook"
@@ -7020,20 +7030,31 @@ export default function App() {
                           className="space-y-8"
                         >
                           <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
                               <div>
                                 <h3 className="text-2xl font-bold text-slate-900">{t.dashboard.gradebook}</h3>
                                 <p className="text-slate-500">{lang === 'en' ? 'Manage and post grades for all students' : 'ለሁሉም ተማሪዎች ውጤት ያስተዳድሩ እና ይለጥፉ'}</p>
                               </div>
-                              <div className="relative flex-1 max-w-md">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                                <input 
-                                  type="text"
-                                  placeholder={t.dashboard.searchPlaceholder}
-                                  value={searchQuery}
-                                  onChange={(e) => setSearchQuery(e.target.value)}
-                                  className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500 transition-all"
-                                />
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 max-w-2xl justify-end">
+                                <div className="relative flex-1">
+                                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                                  <input 
+                                    type="text"
+                                    placeholder={t.dashboard.searchPlaceholder}
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500 transition-all text-sm"
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsGradebookPdfModalOpen(true)}
+                                  className="px-5 py-3 bg-gradient-to-r from-blue-700 via-indigo-700 to-indigo-800 hover:from-blue-800 hover:to-indigo-900 text-white rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-blue-200 shrink-0 cursor-pointer"
+                                  title="Export entire Gradebook table to an official PDF file"
+                                >
+                                  <FileDown className="w-4 h-4 text-amber-300" />
+                                  <span>{lang === 'en' ? 'Export Gradebook (PDF)' : 'የውጤት መዝገብ አውርድ (PDF)'}</span>
+                                </button>
                               </div>
                             </div>
 
@@ -7048,65 +7069,115 @@ export default function App() {
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
-                                  {students
-                                    .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.id.toLowerCase().includes(searchQuery.toLowerCase()))
-                                    .map((student) => {
-                                      const grades = studentGrades[student.id] || [];
-                                      const gpa = grades.length > 0 
-                                        ? (grades.reduce((sum, g) => {
-                                            const points: Record<string, number> = { 'A': 4.0, 'A-': 3.7, 'B+': 3.3, 'B': 3.0, 'B-': 2.7, 'C+': 2.3, 'C': 2.0, 'N/A': 0.0 };
-                                            return sum + (points[g.grade] || 0);
-                                          }, 0) / grades.length).toFixed(2)
-                                        : '0.00';
+                                  {students.length === 0 ? (
+                                    <tr>
+                                      <td colSpan={4} className="py-14 text-center text-slate-400">
+                                        <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-20 text-slate-400" />
+                                        <p className="font-bold text-slate-700 text-base">
+                                          {lang === 'en' ? 'No students enrolled yet' : 'ምንም የተመዘገቡ ተማሪዎች የሉም'}
+                                        </p>
+                                        <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 mb-4">
+                                          {lang === 'en' 
+                                            ? 'When applicants are approved in the Admissions tab, their official Student ID is assigned and their gradebook ledger will automatically appear here.' 
+                                            : 'በምዝገባ ቢሮ በኩል ማመልከቻዎችን ሲያጸድቁ የተማሪው መታወቂያ ተዘጋጅቶ እዚህ በይፋ ይመዘገባል።'}
+                                        </p>
+                                        <button
+                                          type="button"
+                                          onClick={() => setDashboardTab('Admissions')}
+                                          className="px-5 py-2.5 bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs rounded-xl transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                          <UserPlus className="w-4 h-4 text-blue-600" />
+                                          <span>{lang === 'en' ? 'Go to Admissions & Applications' : 'ወደ ማመልከቻዎች ሂድ'}</span>
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ) : students.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.id.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+                                    <tr>
+                                      <td colSpan={4} className="py-12 text-center text-slate-400">
+                                        <Search className="w-10 h-10 mx-auto mb-2 opacity-20 text-slate-400" />
+                                        <p className="font-bold text-slate-600">
+                                          {lang === 'en' ? 'No matching students found' : 'ምንም የሚመሳሰል ተማሪ አልተገኘም'}
+                                        </p>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                          {lang === 'en' ? 'Try adjusting your search criteria' : 'እባክዎ ፍለጋዎን ያስተካክሉ'}
+                                        </p>
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    students
+                                      .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.id.toLowerCase().includes(searchQuery.toLowerCase()))
+                                      .map((student) => {
+                                        const grades = studentGrades[student.id] || [];
+                                        const gpa = grades.length > 0 
+                                          ? (grades.reduce((sum, g) => {
+                                              const points: Record<string, number> = { 'A': 4.0, 'A-': 3.7, 'B+': 3.3, 'B': 3.0, 'B-': 2.7, 'C+': 2.3, 'C': 2.0, 'N/A': 0.0 };
+                                              return sum + (points[g.grade] || 0);
+                                            }, 0) / grades.length).toFixed(2)
+                                          : '0.00';
 
-                                      return (
-                                        <tr key={student.id} className="group hover:bg-slate-50/50 transition-colors">
-                                          <td className="py-4">
-                                            <div className="flex items-center gap-3">
-                                              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 font-bold text-xs">
-                                                {student.name.split(' ').map(n => n[0]).join('')}
+                                        return (
+                                          <tr key={student.id} className="group hover:bg-slate-50/50 transition-colors">
+                                            <td className="py-4">
+                                              <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 font-bold text-xs">
+                                                  {student.name.split(' ').map(n => n[0]).join('')}
+                                                </div>
+                                                <div>
+                                                  <div className="font-bold text-slate-900">{student.name}</div>
+                                                  <div className="text-xs text-slate-500 font-mono font-bold">ID: {student.id}</div>
+                                                </div>
                                               </div>
-                                              <div>
-                                                <div className="font-bold text-slate-900">{student.name}</div>
-                                                <div className="text-xs text-slate-500">ID: {student.id}</div>
+                                            </td>
+                                            <td className="py-4">
+                                              <span className="text-sm font-medium text-slate-600">{student.grade}</span>
+                                            </td>
+                                            <td className="py-4">
+                                              <div className="flex flex-col">
+                                                <span className="text-sm font-black text-blue-600">{gpa} GPA</span>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[10px] text-slate-400">({grades.length} {lang === 'en' ? 'Subjects' : 'ትምህርቶች'})</span>
+                                                  <span className="text-[10px] text-slate-400">•</span>
+                                                  <span className="text-[10px] text-slate-400">({grades.reduce((sum, g) => sum + (g.assignmentCount || g.assignments?.length || 0), 0)} {t.dashboard.assignments})</span>
+                                                </div>
                                               </div>
-                                            </div>
-                                          </td>
-                                          <td className="py-4">
-                                            <span className="text-sm font-medium text-slate-600">{student.grade}</span>
-                                          </td>
-                                          <td className="py-4">
-                                            <div className="flex flex-col">
-                                              <span className="text-sm font-black text-blue-600">{gpa} GPA</span>
-                                              <div className="flex items-center gap-1">
-                                                <span className="text-[10px] text-slate-400">({grades.length} {lang === 'en' ? 'Subjects' : 'ትምህርቶች'})</span>
-                                                <span className="text-[10px] text-slate-400">•</span>
-                                                <span className="text-[10px] text-slate-400">({grades.reduce((sum, g) => sum + (g.assignmentCount || g.assignments?.length || 0), 0)} {t.dashboard.assignments})</span>
+                                            </td>
+                                            <td className="py-4 text-right">
+                                              <div className="flex items-center justify-end gap-2 flex-wrap">
+                                                <button 
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedStudentForReportCard(student);
+                                                    setIsReportCardModalOpen(true);
+                                                  }}
+                                                  className="px-3 py-2 bg-amber-50 text-amber-800 text-xs font-bold rounded-xl hover:bg-amber-100 transition-all shadow-xs flex items-center gap-1.5 cursor-pointer border border-amber-200/60"
+                                                  title={lang === 'en' ? 'Create or View Official Report Card' : 'ይፋዊ የውጤት ካርድ'}
+                                                >
+                                                  <Award className="w-3.5 h-3.5 text-amber-600" />
+                                                  <span>{lang === 'en' ? 'Report Card' : 'ሪፖርት ካርድ'}</span>
+                                                </button>
+                                                <button 
+                                                  type="button"
+                                                  onClick={() => setViewingGradeHistory(student)}
+                                                  className="px-3 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all shadow-xs cursor-pointer"
+                                                >
+                                                  {lang === 'en' ? 'View History' : 'ታሪክ'}
+                                                </button>
+                                                <button 
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setPostingGradeStudent(student);
+                                                    setIsPostingGrade(true);
+                                                  }}
+                                                  className="px-3.5 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition-all shadow-xs cursor-pointer"
+                                                >
+                                                  {t.dashboard.postGrade}
+                                                </button>
                                               </div>
-                                            </div>
-                                          </td>
-                                          <td className="py-4 text-right">
-                                            <div className="flex items-center justify-end gap-2">
-                                              <button 
-                                                onClick={() => setViewingGradeHistory(student)}
-                                                className="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-200 transition-all shadow-sm"
-                                              >
-                                                {lang === 'en' ? 'View History' : 'ታሪክ ይመልከቱ'}
-                                              </button>
-                                              <button 
-                                                onClick={() => {
-                                                  setPostingGradeStudent(student);
-                                                  setIsPostingGrade(true);
-                                                }}
-                                                className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition-all shadow-sm"
-                                              >
-                                                {t.dashboard.postGrade}
-                                              </button>
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })
+                                  )}
                                 </tbody>
                               </table>
                             </div>
@@ -7526,6 +7597,29 @@ export default function App() {
                             </div>
                           </div>
                       </motion.div>
+                      )}
+
+                      {dashboardTab === 'AIAssistant' && (
+                        <motion.div
+                          key="AIAssistant"
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="space-y-6"
+                        >
+                          <DirectorAiChatbot
+                            lang={lang}
+                            stats={{
+                              studentCount: students.length,
+                              facultyCount: teachers.length + faculty.length,
+                              pendingAdmissionsCount: (admissions || []).filter(a => a.status === 'Under Review' || a.status === 'Pending Review' || a.status === 'Pending').length,
+                              totalTuitionCollected: allPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0),
+                              newsCount: newsItems.length,
+                              eventCount: events.length
+                            }}
+                          />
+                        </motion.div>
                       )}
                     </AnimatePresence>
                   ) : userRole === 'Teacher' ? (
@@ -8027,6 +8121,158 @@ export default function App() {
                                   </div>
                                 ))
                               )}
+                            </div>
+                          </div>
+                        </motion.div>
+                      ) : dashboardTab === 'Gradebook' ? (
+                        <motion.div
+                          key="StudentGradebookTab"
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="space-y-8"
+                        >
+                          {/* Official Report Cards Section */}
+                          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+                              <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200/60">
+                                    {lang === 'en' ? 'Official Documents' : 'ይፋዊ ሰነዶች'}
+                                  </span>
+                                </div>
+                                <h3 className="text-2xl font-bold text-slate-900">{lang === 'en' ? 'Official School Report Cards' : 'ይፋዊ የተማሪ ውጤት ካርዶች'}</h3>
+                                <p className="text-sm text-slate-500">
+                                  {lang === 'en' 
+                                    ? 'Official academic report cards published and certified by the School Director.' 
+                                    : 'በትምህርት ቤቱ ዳይሬክተር የተረጋገጡ እና የተለቀቁ ይፋዊ የውጤት ካርዶች።'}
+                                </p>
+                              </div>
+                            </div>
+
+                            {studentReportCards.length === 0 ? (
+                              <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                                <Award className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                <h4 className="font-bold text-slate-700 text-sm">
+                                  {lang === 'en' ? 'No Official Report Cards Published Yet' : 'እስካሁን የወጣ ይፋዊ የውጤት ካርድ የለም'}
+                                </h4>
+                                <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
+                                  {lang === 'en' 
+                                    ? 'The School Director will compile your subject evaluations and out of 100 average scores. Once published, you can view and print your official certified report card here.' 
+                                    : 'የትምህርት ቤቱ ዳይሬክተር የትምህርት ውጤቶችን እና ከመቶ አማካይ ውጤቶችን ሲያዘጋጁ እዚህ ማየት እና ማተም ይችላሉ።'}
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {studentReportCards.map((rc) => (
+                                  <div key={rc.id} className="p-6 rounded-2xl border border-slate-100 bg-gradient-to-br from-white to-slate-50 hover:border-blue-200 hover:shadow-md transition-all">
+                                    <div className="flex items-start justify-between mb-4">
+                                      <div>
+                                        <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">{rc.academicYear} • {rc.term}</span>
+                                        <h4 className="text-lg font-black text-slate-900 mt-0.5">{rc.studentName}</h4>
+                                        <p className="text-xs text-slate-500 font-mono">ID: {rc.studentId} • {rc.grade}</p>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-2xl font-black text-blue-600 block">{rc.averageScore}%</span>
+                                        <span className="text-[10px] font-bold text-slate-400">Grade {rc.overallLetterGrade}</span>
+                                      </div>
+                                    </div>
+
+                                    <div className="py-3 border-y border-slate-100 grid grid-cols-2 gap-2 text-xs text-slate-600 mb-4">
+                                      <div>
+                                        <span className="text-slate-400 block text-[10px] uppercase font-bold">{lang === 'en' ? 'Conduct' : 'ጠባይ'}</span>
+                                        <span className="font-bold text-slate-800">{rc.conduct}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 block text-[10px] uppercase font-bold">{lang === 'en' ? 'Subjects Count' : 'የትምህርቶች ብዛት'}</span>
+                                        <span className="font-bold text-slate-800">{rc.subjects?.length || 0}</span>
+                                      </div>
+                                    </div>
+
+                                    {rc.directorRemarks && (
+                                      <p className="text-xs text-slate-600 italic mb-4 line-clamp-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                                        "{rc.directorRemarks}"
+                                      </p>
+                                    )}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setViewingReportCard(rc);
+                                        setSelectedStudentForReportCard({
+                                          id: rc.studentId,
+                                          name: rc.studentName,
+                                          grade: rc.grade,
+                                          email: userData.email,
+                                          photo: userData.photo,
+                                          enrollmentDate: userData.enrollmentDate
+                                        });
+                                        setIsReportCardModalOpen(true);
+                                      }}
+                                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                                    >
+                                      <Award className="w-4 h-4 text-amber-300" />
+                                      <span>{lang === 'en' ? 'View & Print Official Report Card' : 'ይፋዊ ሪፖርት ካርድ ይመልከቱ እና ያትሙ'}</span>
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Gradebook Subjects Ledger for Student */}
+                          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
+                            <div className="flex items-center justify-between mb-8">
+                              <div>
+                                <h3 className="text-xl font-bold text-slate-900">{t.dashboard.gradebook}</h3>
+                                <p className="text-sm text-slate-500">{lang === 'en' ? 'Continuous assessment & course subjects ledger' : 'ቀጣይነት ያለው ግምገማ እና የትምህርት ዝርዝር'}</p>
+                              </div>
+                              <div className="px-4 py-2 bg-blue-50 rounded-xl text-blue-700 font-black text-sm">
+                                {(() => {
+                                  const grades = studentGrades[userData.id] || [];
+                                  if (grades.length === 0) return '0.00 GPA';
+                                  const points: Record<string, number> = { 'A': 4.0, 'A-': 3.7, 'B+': 3.3, 'B': 3.0, 'B-': 2.7, 'C+': 2.3, 'C': 2.0, 'N/A': 0.0 };
+                                  return (grades.reduce((sum, g) => sum + (points[g.grade] || 0), 0) / grades.length).toFixed(2) + ' GPA';
+                                })()}
+                              </div>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left border-collapse text-sm">
+                                <thead>
+                                  <tr className="border-b border-slate-100 text-slate-400 text-xs uppercase font-bold">
+                                    <th className="pb-3">{t.dashboard.subject}</th>
+                                    <th className="pb-3 text-center">{t.dashboard.overallGrade}</th>
+                                    <th className="pb-3 text-center">{t.dashboard.assignmentStatus}</th>
+                                    <th className="pb-3 text-right">{t.dashboard.attendance}</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                  {(studentGrades[userData.id] || []).length === 0 ? (
+                                    <tr>
+                                      <td colSpan={4} className="py-10 text-center text-slate-400">
+                                        <p>{lang === 'en' ? 'No course evaluations posted yet' : 'እስካሁን የተለጠፈ ውጤት የለም'}</p>
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    (studentGrades[userData.id] || []).map((row, i) => (
+                                      <tr key={i} className="hover:bg-slate-50/50">
+                                        <td className="py-3 font-bold text-slate-800">{row.subject}</td>
+                                        <td className="py-3 text-center">
+                                          <span className={`font-black ${row.color || 'text-blue-600'}`}>{row.grade}</span>
+                                        </td>
+                                        <td className="py-3 text-center">
+                                          <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                                            {row.status || '0/0'}
+                                          </span>
+                                        </td>
+                                        <td className="py-3 text-right font-medium text-slate-600">{row.attendance || '100%'}</td>
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
                             </div>
                           </div>
                         </motion.div>
@@ -10474,39 +10720,77 @@ export default function App() {
                     </div>
 
                     <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{lang === 'en' ? 'Student ID' : 'የተማሪ መለያ'}</label>
-                        <input 
-                          type="text"
-                          value={paymentStudentId}
-                          onChange={(e) => setPaymentStudentId(e.target.value)}
-                          className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 text-sm outline-none focus:border-blue-500 transition-all font-mono"
-                          placeholder="e.g. S1001"
-                        />
+                      {students.length > 0 && (
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            {lang === 'en' ? 'Select Student (Quick Pick)' : 'ተማሪ ይምረጡ'}
+                          </label>
+                          <select
+                            value={paymentStudentId}
+                            onChange={(e) => {
+                              const sId = e.target.value;
+                              setPaymentStudentId(sId);
+                              const selected = students.find(s => s.id === sId);
+                              if (selected) {
+                                setPaymentReference(selected.name);
+                              }
+                            }}
+                            className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 text-sm outline-none focus:border-blue-500 transition-all font-medium"
+                          >
+                            <option value="">{lang === 'en' ? '-- Select Registered Student --' : '-- የተመዘገበ ተማሪ ይምረጡ --'}</option>
+                            {students.map(s => (
+                              <option key={s.id} value={s.id}>
+                                {s.name} ({s.id}) • {s.grade}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{lang === 'en' ? 'Student ID' : 'የተማሪ መለያ'}</label>
+                          <input 
+                            type="text"
+                            required
+                            value={paymentStudentId}
+                            onChange={(e) => setPaymentStudentId(e.target.value)}
+                            className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 text-sm outline-none focus:border-blue-500 transition-all font-mono"
+                            placeholder="e.g. S1001"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{lang === 'en' ? 'Student Name' : 'የተማሪ ስም'}</label>
+                          <input 
+                            type="text"
+                            required
+                            value={paymentReference}
+                            onChange={(e) => setPaymentReference(e.target.value)}
+                            className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 text-sm outline-none focus:border-blue-500 transition-all font-medium"
+                            placeholder="Full Name"
+                          />
+                        </div>
                       </div>
+
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{lang === 'en' ? 'Student Name' : 'የተማሪ ስም'}</label>
-                        <input 
-                          type="text"
-                          value={paymentReference} // Reusing reference state for name temporarily or just add new state
-                          onChange={(e) => setPaymentReference(e.target.value)}
-                          className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 text-sm outline-none focus:border-blue-500 transition-all"
-                          placeholder="Full Name"
-                        />
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{lang === 'en' ? 'Amount (ETB)' : 'የክፍያ መጠን (ETB)'}</label>
+                        <div className="relative">
+                          <input 
+                            type="number"
+                            required
+                            value={paymentAmount}
+                            onChange={(e) => setPaymentAmount(e.target.value)}
+                            className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 text-sm outline-none focus:border-blue-500 transition-all font-black text-blue-600 pl-14"
+                            placeholder="15000"
+                          />
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-xs">ETB</span>
+                        </div>
                       </div>
+
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{lang === 'en' ? 'Amount' : 'መጠን'}</label>
-                        <input 
-                          type="text"
-                          value={paymentAmount}
-                          onChange={(e) => setPaymentAmount(e.target.value)}
-                          className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 text-sm outline-none focus:border-blue-500 transition-all font-bold"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{lang === 'en' ? 'Receipt' : 'ደረሰኝ'}</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{lang === 'en' ? 'Receipt Proof (Optional for Director)' : 'ደረሰኝ (አማራጭ)'}</label>
                         <div className="flex items-center gap-4">
-                          <label className="flex-1 flex items-center justify-center gap-2 p-4 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all group">
+                          <label className="flex-1 flex items-center justify-center gap-2 p-3.5 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all group">
                             <input 
                               type="file" 
                               className="hidden" 
@@ -10523,10 +10807,10 @@ export default function App() {
                               }}
                             />
                             <Upload className="w-5 h-5 text-slate-400 group-hover:text-blue-600" />
-                            <span className="text-sm text-slate-600 font-medium">{paymentReceipt ? (lang === 'en' ? 'Receipt Selected' : 'ደረሰኝ ተመርጧል') : (lang === 'en' ? 'Select Receipt' : 'ደረሰኝ ምረጥ')}</span>
+                            <span className="text-xs text-slate-600 font-medium">{paymentReceipt ? (lang === 'en' ? 'Receipt Selected' : 'ደረሰኝ ተመርጧል') : (lang === 'en' ? 'Upload Receipt Image' : 'ደረሰኝ ይጫኑ')}</span>
                           </label>
                           {paymentReceipt && (
-                            <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shrink-0">
+                            <div className="w-14 h-14 rounded-xl overflow-hidden border border-slate-200 shrink-0">
                               <img src={paymentReceipt} alt="Receipt Preview" className="w-full h-full object-cover" />
                             </div>
                           )}
@@ -10536,46 +10820,83 @@ export default function App() {
 
                     <div className="mt-8 flex gap-3">
                       <button 
+                        type="button"
                         onClick={() => { setIsAddingPayment(false); setEditingPayment(null); setPaymentReceipt(null); }}
-                        className="flex-1 px-6 py-3 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-all"
+                        className="flex-1 px-5 py-3 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-all text-xs"
                       >
                         {lang === 'en' ? 'Cancel' : 'ሰርዝ'}
                       </button>
                       <button 
+                        type="button"
                         onClick={async () => {
-                          if (!paymentStudentId || !paymentAmount) return;
+                          if (!paymentStudentId.trim() || !paymentAmount.trim()) {
+                            alert(lang === 'en' ? 'Please specify both Student ID and Payment Amount.' : 'እባክዎ የተማሪ መለያ እና የክፍያ መጠን ያስገቡ።');
+                            return;
+                          }
                           try {
                             const paymentId = editingPayment ? editingPayment.id : Date.now().toString();
-                            const student = students.find(s => s.id === paymentStudentId);
-                            const paymentData = {
+                            const student = students.find(s => s.id === paymentStudentId.trim());
+                            const studentName = student?.name || paymentReference.trim() || 'Student';
+                            const paymentData: any = {
                               id: paymentId,
-                              studentId: paymentStudentId,
-                              studentName: student?.name || paymentReference,
-                              amount: paymentAmount,
-                              currency: t.payment.currency,
+                              studentId: paymentStudentId.trim(),
+                              studentName: studentName,
+                              grade: student?.grade || '',
+                              amount: paymentAmount.toString().trim(),
+                              currency: 'ETB',
                               date: editingPayment ? editingPayment.date : new Date().toLocaleDateString(),
-                              status: editingPayment ? editingPayment.status : 'Verified',
-                              receipt: paymentReceipt || 'https://api.dicebear.com/7.x/initials/svg?seed=Manual',
-                              reference: editingPayment ? editingPayment.reference : 'MANUAL-' + Date.now().toString().slice(-6),
+                              status: 'Verified',
+                              receipt: paymentReceipt || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(studentName)}`,
+                              reference: editingPayment ? editingPayment.reference : `DIR-${Date.now().toString().slice(-6)}`,
                               timestamp: editingPayment ? editingPayment.timestamp : serverTimestamp(),
-                              uid: student?.uid || editingPayment?.uid || ''
+                              uid: student?.uid || editingPayment?.uid || auth.currentUser?.uid || 'director-admin',
+                              verifiedAt: serverTimestamp()
                             };
+
+                            // Optimistically update allPayments state immediately!
+                            setAllPayments(prev => {
+                              const exists = prev.some(p => p.id === paymentId);
+                              if (exists) {
+                                return prev.map(p => p.id === paymentId ? paymentData : p);
+                              }
+                              return [paymentData, ...prev];
+                            });
+
+                            // Persist to Firestore payments collection
                             await setDoc(doc(db, 'payments', paymentId), paymentData);
+
+                            // Also persist to student subcollection if student exists
+                            if (student) {
+                              try {
+                                await setDoc(doc(db, 'students', student.id, 'payments', paymentId), paymentData);
+                              } catch (subErr) {
+                                console.warn('Subcollection payment save fallback:', subErr);
+                              }
+                            }
+
                             setIsAddingPayment(false);
                             setEditingPayment(null);
                             setPaymentReceipt(null);
+                            setPaymentStudentId('');
+                            setPaymentReference('');
+                            setPaymentAmount('15000');
+
                             alert(editingPayment 
                               ? (lang === 'en' ? 'Payment updated successfully!' : 'ክፍያው በተሳካ ሁኔታ ተሻሽሏል!')
-                              : (lang === 'en' ? 'Payment added successfully!' : 'ክፍያ በተሳካ ሁኔታ ተጨምሯል!'));
+                              : (lang === 'en' ? `Payment of ${paymentAmount} ETB for ${studentName} successfully submitted and recorded!` : `የ${paymentAmount} ETB ክፍያ ለ${studentName} በተሳካ ሁኔታ ተመዝግቧል!`));
                           } catch (error) {
+                            console.error('Payment submit error:', error);
                             handleFirestoreError(error, editingPayment ? OperationType.UPDATE : OperationType.WRITE, 'payments');
                           }
                         }}
-                        className="flex-[2] px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                        className="flex-[2] px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2 text-xs cursor-pointer"
                       >
-                        {editingPayment 
-                          ? (lang === 'en' ? 'Update Payment' : 'ክፍያውን አዘምን')
-                          : (lang === 'en' ? 'Add Payment' : 'ክፍያ ጨምር')}
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>
+                          {editingPayment 
+                            ? (lang === 'en' ? 'Update Payment' : 'ክፍያውን አዘምን')
+                            : (lang === 'en' ? 'Submit & Add Payment' : 'ክፍያ አስገባ እና መዝግብ')}
+                        </span>
                       </button>
                     </div>
                   </motion.div>
@@ -12432,6 +12753,50 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Gradebook PDF Export Modal */}
+      <GradebookPdfExportModal
+        isOpen={isGradebookPdfModalOpen}
+        onClose={() => setIsGradebookPdfModalOpen(false)}
+        lang={lang}
+        students={students}
+        studentGrades={studentGrades}
+      />
+
+      {/* Official Report Card Modal */}
+      <ReportCardModal
+        isOpen={isReportCardModalOpen}
+        onClose={() => {
+          setIsReportCardModalOpen(false);
+          setSelectedStudentForReportCard(null);
+          setViewingReportCard(null);
+        }}
+        lang={lang}
+        student={selectedStudentForReportCard}
+        existingReportCard={viewingReportCard}
+        isDirector={userRole === 'Director'}
+        onSuccessPublished={(publishedCard) => {
+          setStudentReportCards(prev => [...prev.filter(r => r.id !== publishedCard.id), publishedCard]);
+        }}
+      />
+
+      {/* Director-Only Floating AI Assistant & Modal */}
+      {userRole === 'Director' && (
+        <DirectorAiChatbot
+          lang={lang}
+          stats={{
+            studentCount: students.length,
+            facultyCount: teachers.length + faculty.length,
+            pendingAdmissionsCount: (admissions || []).filter(a => a.status === 'Under Review' || a.status === 'Pending Review' || a.status === 'Pending').length,
+            totalTuitionCollected: allPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0),
+            newsCount: newsItems.length,
+            eventCount: events.length
+          }}
+          isFloating={true}
+          isOpenFloating={isDirectorAiFloatingOpen}
+          onCloseFloating={() => setIsDirectorAiFloatingOpen(false)}
+        />
       )}
 
       <AnimatePresence>
