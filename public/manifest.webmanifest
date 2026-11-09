@@ -1,0 +1,55 @@
+{
+  "id": "/",
+  "name": "Abune Gorgorios School",
+  "short_name": "AG School",
+  "description": "Official application for Abune Gorgorios School - Shaping Minds, Building Futures.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#1e3a8a",
+  "background_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Student Portal",
+      "short_name": "Portal",
+      "description": "Access student grades and tuition clearance",
+      "url": "/?tab=Portal",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Campus Maps",
+      "short_name": "Navigation",
+      "description": "Directions and Maps Grounding for Campus",
+      "url": "/?tab=Maps",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Admissions",
+      "short_name": "Apply",
+      "description": "School admission form and status tracking",
+      "url": "/?tab=Admissions",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}

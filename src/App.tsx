@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useCallback, useRef, FormEvent, useEffect, ChangeEvent, Fragment } from 'react';
+import { useState, useCallback, useMemo, useRef, FormEvent, useEffect, ChangeEvent, Fragment } from 'react';
 import { motion, AnimatePresence } from "motion/react";
 import { AiPhotoGeneratorModal, generateProfessionalSvgAvatar } from './components/AiPhotoGeneratorModal';
 import { RegistrationControlModal, RegistrationConfig } from './components/RegistrationControlModal';
@@ -16,6 +16,14 @@ import { DirectorAiChatbot } from './components/DirectorAiChatbot';
 import { ReportCardModal, OfficialReportCard } from './components/ReportCardModal';
 import { GradebookPdfExportModal } from './components/GradebookPdfExportModal';
 import { AttendanceAnalytics, DailyAttendanceRecord } from './components/AttendanceAnalytics';
+import { exportStudentsToCsv } from './utils/csvExport';
+import { CampusMapsGrounding } from './components/CampusMapsGrounding';
+import { AndroidInstallModal } from './components/AndroidInstallModal';
+import { AndroidBottomNav } from './components/AndroidBottomNav';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { StudentGpaBarChart } from './components/StudentGpaBarChart';
+import { GradebookSubjectFilter, CURRICULUM_SUBJECTS, isSubjectMatch } from './components/GradebookSubjectFilter';
+import { AndroidNativeProjectModal } from './components/AndroidNativeProjectModal';
 import html2canvas from 'html2canvas';
 
 // Firebase imports
@@ -238,6 +246,7 @@ const translations = {
       studentManagement: 'Student Management',
       studentManagementDesc: 'View and manage student profiles',
       addStudent: 'Add Student',
+      exportCsv: 'Export CSV',
       tableStudent: 'Student',
       tableGrade: 'Grade',
       tableId: 'Student ID',
@@ -557,6 +566,7 @@ const translations = {
       studentManagement: 'የተማሪዎች አስተዳደር',
       studentManagementDesc: 'የተማሪ ፕሮፋይሎችን ይመልከቱ እና ያስተዳድሩ',
       addStudent: 'ተማሪ ጨምር',
+      exportCsv: 'CSV አውርድ',
       tableStudent: 'ተማሪ',
       tableGrade: 'ክፍል',
       tableId: 'የተማሪ መታወቂያ',
@@ -819,9 +829,12 @@ import {
   FileDown,
   Activity,
   BarChart3,
+  EyeOff,
+  Smartphone,
+  Navigation,
 } from 'lucide-react';
 
-type Page = 'Home' | 'About' | 'Admissions' | 'Academics' | 'Faculty' | 'Blog' | 'Events' | 'Contact' | 'Dashboard' | 'Payment';
+type Page = 'Home' | 'About' | 'Admissions' | 'Academics' | 'Faculty' | 'Blog' | 'Events' | 'Contact' | 'Dashboard' | 'Payment' | 'CampusMaps';
 
 interface FacultyMember {
   id: number;
@@ -1312,6 +1325,24 @@ export default function App() {
   // Gradebook PDF Export State
   const [isGradebookPdfModalOpen, setIsGradebookPdfModalOpen] = useState(false);
 
+  // Android Application Modal & PWA Shortcut Handler
+  const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam === 'Maps') {
+        setActivePage('CampusMaps');
+      } else if (tabParam === 'Portal') {
+        setActivePage(isLoggedIn ? 'Dashboard' : 'Home');
+        if (!isLoggedIn) setIsLoginModalOpen(true);
+      } else if (tabParam === 'Admissions') {
+        setActivePage('Admissions');
+      }
+    } catch {}
+  }, [isLoggedIn]);
+
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   const [studentIdSearchQuery, setStudentIdSearchQuery] = useState('');
   const [studentGradeFilter, setStudentGradeFilter] = useState('All');
@@ -1384,11 +1415,13 @@ export default function App() {
   const [searchedStudent, setSearchedStudent] = useState<Student | null>(null);
   const [searchStudentId, setSearchStudentId] = useState('');
   const [isSearchingStudent, setIsSearchingStudent] = useState(false);
-  const [newStudent, setNewStudent] = useState({ name: '', grade: '', email: '', photo: '', id: '', password: '' });
+  const [newStudent, setNewStudent] = useState({ name: '', grade: '9th Grade', email: '', photo: '', id: '', password: 'abc@1234' });
   const [newFaculty, setNewFaculty] = useState({ name: '', title: '', bio: '', photo: '', teacherId: '' });
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showNewStudentPassword, setShowNewStudentPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const getPasswordStrength = (password: string) => {
@@ -1544,8 +1577,76 @@ export default function App() {
   const [eventCategoryFilter, setEventCategoryFilter] = useState<'All' | 'Academic' | 'Social' | 'Sports' | 'Holiday'>('All');
   const [viewingGradeHistory, setViewingGradeHistory] = useState<Student | null>(null);
   const [currentStudentAssignments, setCurrentStudentAssignments] = useState<Record<string, Assignment[]>>({});
-  const [gradeHistoryView, setGradeHistoryView] = useState<'BySubject' | 'AllAssignments'>('BySubject');
+  const [gradeHistoryView, setGradeHistoryView] = useState<'BySubject' | 'AllAssignments' | 'GpaTrends'>('BySubject');
   const [gradebookSubTab, setGradebookSubTab] = useState<'Students' | 'Assignments' | 'Attendance'>('Students');
+  const [gradebookSubjectFilter, setGradebookSubjectFilter] = useState<string>('All');
+  const [isAndroidNativeModalOpen, setIsAndroidNativeModalOpen] = useState(false);
+
+  const subjectStudentCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: students.length };
+    CURRICULUM_SUBJECTS.forEach(subj => {
+      if (subj.id === 'All') return;
+      let count = 0;
+      students.forEach(student => {
+        const grades = studentGrades[student.id] || [];
+        if (grades.some(g => isSubjectMatch(g.subject, subj.id))) {
+          count++;
+        }
+      });
+      counts[subj.id] = count;
+    });
+    return counts;
+  }, [students, studentGrades]);
+
+  const selectedSubjectMetrics = useMemo(() => {
+    if (gradebookSubjectFilter === 'All') return undefined;
+
+    let totalScore = 0;
+    let evaluatedCount = 0;
+    let passedCount = 0;
+    let topStudentName = '';
+    let topStudentScore = -1;
+
+    students.forEach(student => {
+      const grades = studentGrades[student.id] || [];
+      const match = grades.find(g => isSubjectMatch(g.subject, gradebookSubjectFilter));
+      if (match) {
+        evaluatedCount++;
+        let scorePercent = 75;
+        if (match.assignments && match.assignments.length > 0) {
+          const graded = match.assignments.filter(a => a.status === 'Graded');
+          if (graded.length > 0) {
+            const sumScore = graded.reduce((s, a) => s + (a.score || 0), 0);
+            const sumTotal = graded.reduce((s, a) => s + (a.total || 100), 0);
+            scorePercent = sumTotal > 0 ? (sumScore / sumTotal) * 100 : 75;
+          }
+        } else {
+          const points: Record<string, number> = { 'A': 95, 'A-': 90, 'B+': 85, 'B': 80, 'B-': 75, 'C+': 70, 'C': 65, 'N/A': 0 };
+          scorePercent = points[match.grade] || 75;
+        }
+
+        totalScore += scorePercent;
+        if (scorePercent >= 60 || ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C'].includes(match.grade)) {
+          passedCount++;
+        }
+        if (scorePercent > topStudentScore) {
+          topStudentScore = scorePercent;
+          topStudentName = student.name;
+        }
+      }
+    });
+
+    const averageScore = evaluatedCount > 0 ? totalScore / evaluatedCount : 0;
+    const passRate = evaluatedCount > 0 ? Math.round((passedCount / evaluatedCount) * 100) : 0;
+
+    return {
+      averageScore,
+      passRate,
+      topStudentName: topStudentScore > -1 ? topStudentName : undefined,
+      topStudentScore: topStudentScore > -1 ? topStudentScore : undefined,
+      evaluatedCount
+    };
+  }, [gradebookSubjectFilter, students, studentGrades]);
   const [isAddingAssignment, setIsAddingAssignment] = useState(false);
   const [newAssignmentForm, setNewAssignmentForm] = useState({ title: '', subject: '', total: '', date: new Date().toISOString().split('T')[0] });
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
@@ -1891,21 +1992,39 @@ export default function App() {
     e.preventDefault();
     setLoginError(null);
     setIsLoggingIn(true);
-    if (loginType === 'student') {
-      const cleanInput = loginEmail.trim();
-      let foundStudent: Student | null = null;
+    const cleanInput = loginEmail.trim();
+    const cleanPassword = loginPassword.trim();
 
-      // 1. Check current local loaded students state (case-insensitive)
-      const matchedLocal = students.find(s => 
+    // Check if the user is logging in under the Student tab OR if the input matches a known student ID
+    const isStudentTab = loginType === 'student';
+    let matchedStudentForAutoDetect: Student | null = null;
+
+    if (!isStudentTab) {
+      const localMatch = students.find(s => 
         s.id.toLowerCase() === cleanInput.toLowerCase() ||
-        (s.studentId && s.studentId.toLowerCase() === cleanInput.toLowerCase()) ||
-        s.email.toLowerCase() === cleanInput.toLowerCase()
+        (s.studentId && s.studentId.toLowerCase() === cleanInput.toLowerCase())
       );
-      if (matchedLocal) {
-        foundStudent = matchedLocal;
+      if (localMatch) {
+        matchedStudentForAutoDetect = localMatch;
+      }
+    }
+
+    if (isStudentTab || matchedStudentForAutoDetect) {
+      let foundStudent: Student | null = matchedStudentForAutoDetect;
+
+      // 1. Check current local loaded students state (case-insensitive & trimmed)
+      if (!foundStudent) {
+        const matchedLocal = students.find(s => 
+          s.id.trim().toLowerCase() === cleanInput.toLowerCase() ||
+          (s.studentId && s.studentId.trim().toLowerCase() === cleanInput.toLowerCase()) ||
+          s.email.trim().toLowerCase() === cleanInput.toLowerCase()
+        );
+        if (matchedLocal) {
+          foundStudent = matchedLocal;
+        }
       }
 
-      // 2. Check Firestore students collection
+      // 2. Check Firestore students collection (direct doc get by exact, uppercase, or lowercase ID)
       if (!foundStudent) {
         try {
           const docSnap = await getDoc(doc(db, 'students', cleanInput));
@@ -1924,24 +2043,43 @@ export default function App() {
       }
       if (!foundStudent) {
         try {
-          const qEmail = query(collection(db, 'students'), where('email', '==', cleanInput));
-          const snapEmail = await getDocs(qEmail);
-          if (!snapEmail.empty) {
-            foundStudent = snapEmail.docs[0].data() as Student;
+          const docSnapLower = await getDoc(doc(db, 'students', cleanInput.toLowerCase()));
+          if (docSnapLower.exists()) {
+            foundStudent = docSnapLower.data() as Student;
           }
         } catch {}
       }
+
+      // 3. Query Firestore students collection by id or email field
       if (!foundStudent) {
         try {
-          const qId = query(collection(db, 'students'), where('id', '==', cleanInput.toUpperCase()));
+          const qId = query(collection(db, 'students'), where('id', '==', cleanInput));
           const snapId = await getDocs(qId);
           if (!snapId.empty) {
             foundStudent = snapId.docs[0].data() as Student;
           }
         } catch {}
       }
+      if (!foundStudent) {
+        try {
+          const qIdUpper = query(collection(db, 'students'), where('id', '==', cleanInput.toUpperCase()));
+          const snapIdUpper = await getDocs(qIdUpper);
+          if (!snapIdUpper.empty) {
+            foundStudent = snapIdUpper.docs[0].data() as Student;
+          }
+        } catch {}
+      }
+      if (!foundStudent) {
+        try {
+          const qEmail = query(collection(db, 'students'), where('email', '==', cleanInput.toLowerCase()));
+          const snapEmail = await getDocs(qEmail);
+          if (!snapEmail.empty) {
+            foundStudent = snapEmail.docs[0].data() as Student;
+          }
+        } catch {}
+      }
 
-      // 3. Check admissions collection if registered
+      // 4. Check admissions collection if registered
       if (!foundStudent) {
         try {
           const admSnap = await getDoc(doc(db, 'admissions', cleanInput));
@@ -1969,18 +2107,18 @@ export default function App() {
 
       if (!foundStudent) {
         setLoginError(lang === 'en' 
-          ? 'Student ID not found. Please verify your ID with the school office.' 
-          : 'የተማሪ መታወቂያ አልተገኘም። እባክዎ በትምህርት ቤቱ ቢሮ ያረጋግጡ።');
+          ? `Student ID "${cleanInput}" not found. Please verify your ID number or contact the School Director.` 
+          : `የተማሪ መታወቂያ "${cleanInput}" አልተገኘም። እባክዎ በትምህርት ቤቱ ቢሮ ያረጋግጡ።`);
         setIsLoggingIn(false);
         return;
       }
 
-      // Verify Password (default: abc@1234 or student-set password)
-      const expectedPassword = foundStudent.password || 'abc@1234';
-      if (loginPassword !== expectedPassword) {
+      // Verify Password (case-sensitive check against student.password or default abc@1234)
+      const expectedPassword = (foundStudent.password || 'abc@1234').trim();
+      if (cleanPassword !== expectedPassword) {
         setLoginError(lang === 'en' 
-          ? 'Incorrect password. (Initial default password is abc@1234)' 
-          : 'ትክክለኛ ያልሆነ የይለፍ ቃል (የመጀመሪያ የይለፍ ቃል: abc@1234)');
+          ? `Incorrect password for Student ID "${foundStudent.id}". (Default initial password is: abc@1234)` 
+          : `ለትምህርት መታወቂያ "${foundStudent.id}" የተሳሳተ የይለፍ ቃል ነው። (የመጀመሪያ የይለፍ ቃል: abc@1234)`);
         setIsLoggingIn(false);
         return;
       }
@@ -1997,8 +2135,8 @@ export default function App() {
         id: foundStudent.id,
         studentId: foundStudent.id,
         teacherId: '',
-        grade: foundStudent.grade,
-        enrollmentDate: foundStudent.enrollmentDate,
+        grade: foundStudent.grade || '9th Grade',
+        enrollmentDate: foundStudent.enrollmentDate || new Date().toISOString().split('T')[0],
         title: '',
         hasIdCard: foundStudent.hasIdCard || false,
         subject: ''
@@ -2008,13 +2146,15 @@ export default function App() {
       setIsLoggingIn(false);
       setLoginEmail('');
       setLoginPassword('');
+      setIsLoginModalOpen(false);
+      setLoginError(null);
 
       // Background sync with Firebase Auth
       try {
-        await signInWithEmailAndPassword(auth, foundStudent.email, loginPassword);
+        await signInWithEmailAndPassword(auth, foundStudent.email, cleanPassword);
       } catch {
         try {
-          await createUserWithEmailAndPassword(auth, foundStudent.email, loginPassword);
+          await createUserWithEmailAndPassword(auth, foundStudent.email, cleanPassword);
         } catch {}
       }
       return;
@@ -2725,20 +2865,27 @@ export default function App() {
   const handleAddStudent = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      const id = newStudent.id || generateNextStudentId();
+      const id = (newStudent.id || generateNextStudentId()).trim();
+      const studentPassword = (newStudent.password || 'abc@1234').trim();
+      const studentName = newStudent.name.trim();
+      const studentEmail = (newStudent.email.trim()) || `${studentName.toLowerCase().replace(/\s+/g, '.')}@student.ag.edu.et`;
       const newStudentObj: Student = {
         id,
-        name: newStudent.name,
-        grade: newStudent.grade,
-        email: newStudent.email,
-        password: newStudent.password || 'abc@1234',
-        photo: newStudent.photo || `https://picsum.photos/seed/student${students.length + 1}/400/400`,
+        name: studentName,
+        grade: newStudent.grade || '9th Grade',
+        email: studentEmail,
+        password: studentPassword,
+        photo: newStudent.photo || `https://picsum.photos/seed/student${Date.now()}/400/400`,
         enrollmentDate: new Date().toLocaleDateString('default', { month: 'long', year: 'numeric' }),
         hasIdCard: false
       };
       await setDoc(doc(db, 'students', id), newStudentObj);
+      setStudents(prev => [newStudentObj, ...prev.filter(s => s.id !== id)]);
       setIsAddingStudent(false);
-      setNewStudent({ name: '', grade: '', email: '', photo: '', id: '', password: '' });
+      setNewStudent({ name: '', grade: '9th Grade', email: '', photo: '', id: '', password: 'abc@1234' });
+      alert(lang === 'en'
+        ? `Student "${studentName}" added successfully!\n\nOfficial Student ID: ${id}\nLogin Password: ${studentPassword}\n\nThe student can now log in immediately using this ID number and password!`
+        : `ተማሪ "${studentName}" በተሳካ ሁኔታ ተጨምሯል!\n\nየተማሪ መታወቂያ: ${id}\nየመግቢያ የይለፍ ቃል: ${studentPassword}\n\nተማሪው አሁን በዚህ መታወቂያ እና የይለፍ ቃል መግባት ይችላል!`);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'students');
     }
@@ -3332,6 +3479,7 @@ export default function App() {
     { name: 'Faculty', label: t.nav.faculty },
     { name: 'Blog', label: t.nav.blog },
     { name: 'Events', label: t.nav.events },
+    { name: 'CampusMaps', label: lang === 'en' ? 'Campus Maps' : 'የግቢ ካርታ' },
     { name: 'Contact', label: t.nav.contact },
     { name: 'Payment', label: t.nav.payment },
   ];
@@ -5037,6 +5185,32 @@ export default function App() {
                   </div>
                 </motion.div>
               </div>
+
+              {/* Google Maps AI Grounding Section */}
+              <div className="mt-16">
+                <CampusMapsGrounding lang={lang} />
+              </div>
+            </div>
+          </section>
+        );
+      case 'CampusMaps':
+        return (
+          <section className="bg-slate-950 min-h-screen py-16 px-4 md:px-8">
+            <div className="max-w-6xl mx-auto space-y-8">
+              <div className="text-center max-w-3xl mx-auto">
+                <span className="inline-block px-4 py-1.5 bg-blue-500/10 text-blue-400 rounded-full text-xs font-bold tracking-widest uppercase mb-4 border border-blue-500/20">
+                  {lang === 'en' ? 'GOOGLE MAPS GROUNDING' : 'የGoogle ካርታ መረጃ'}
+                </span>
+                <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight mb-4">
+                  {lang === 'en' ? 'Campus Location & Transit Guide' : 'የግቢ አቅጣጫና የትራንስፖርት መመሪያ'}
+                </h1>
+                <p className="text-slate-400 text-sm md:text-base">
+                  {lang === 'en' 
+                    ? 'Explore real-time directions to Abune Gorgorios School in Addis Ababa powered by Gemini 3.8 Flash Maps Grounding.'
+                    : 'በጀሚኒ 3.8 ፍላሽ የGoogle ካርታ መረጃ የተደገፈ የአዲስ አበባ ግቢ አቅጣጫዎችንና መስመሮችን ይመልከቱ።'}
+                </p>
+              </div>
+              <CampusMapsGrounding lang={lang} />
             </div>
           </section>
         );
@@ -5421,7 +5595,7 @@ export default function App() {
 
               {userRole === 'Director' && (
                 <div className="flex flex-wrap gap-2 mb-12 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm overflow-x-auto no-scrollbar relative">
-                  {(['Overview', 'Students', 'AttendanceAnalytics', 'Gradebook', 'Admissions', 'Payments', 'Faculty', 'TeacherAccounts', 'AdminTools', 'Calendar', 'News', 'Messages', 'AIAssistant'] as const).map((tab) => (
+                  {(['Overview', 'Students', 'Performance', 'AttendanceAnalytics', 'Gradebook', 'Admissions', 'Payments', 'Faculty', 'TeacherAccounts', 'AdminTools', 'Calendar', 'News', 'Messages', 'AIAssistant'] as const).map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setDashboardTab(tab as any)}
@@ -5441,6 +5615,7 @@ export default function App() {
                       <span className="relative z-20 flex items-center gap-2">
                         {tab === 'Overview' && <LayoutGrid className="w-4 h-4" />}
                         {tab === 'Students' && <Users className="w-4 h-4" />}
+                        {tab === 'Performance' && <BarChart3 className="w-4 h-4 text-amber-400" />}
                         {tab === 'AttendanceAnalytics' && <Activity className="w-4 h-4 text-emerald-400" />}
                         {tab === 'Gradebook' && <ClipboardList className="w-4 h-4" />}
                         {tab === 'Admissions' && <UserPlus className="w-4 h-4" />}
@@ -5454,6 +5629,7 @@ export default function App() {
                         {tab === 'AIAssistant' && <Sparkles className="w-4 h-4 text-amber-300" />}
                         {tab === 'Overview' ? (lang === 'en' ? 'Overview' : 'አጠቃላይ እይታ') :
                          tab === 'Students' ? (lang === 'en' ? 'Students' : 'ተማሪዎች') :
+                         tab === 'Performance' ? (lang === 'en' ? 'Student Performance' : 'የተማሪዎች አፈጻጸም') :
                          tab === 'AttendanceAnalytics' ? (lang === 'en' ? 'Attendance Analytics' : 'የክትትል ትንተና') :
                          tab === 'Gradebook' ? (lang === 'en' ? 'Gradebook' : 'የውጤት መዝገብ') :
                          tab === 'Admissions' ? (lang === 'en' ? 'Admissions' : 'ምዝገባ') :
@@ -6050,9 +6226,23 @@ export default function App() {
                                 setIsAddingStudent(true);
                                 setNewStudent(prev => ({ ...prev, id: generateNextStudentId() }));
                               }}
-                              className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all text-sm"
+                              className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all text-sm shadow-xs"
                             >
                               <Plus className="w-4 h-4" /> {t.dashboard.addStudent}
+                            </button>
+
+                            <button 
+                              type="button"
+                              onClick={handleExportStudentsCsv}
+                              disabled={filteredStudents.length === 0}
+                              className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all text-sm shadow-xs hover:shadow-md active:scale-95 cursor-pointer"
+                              title={lang === 'en' ? `Export ${filteredStudents.length} student(s) to CSV` : `${filteredStudents.length} ተማሪዎችን ወደ CSV ያውርዱ`}
+                            >
+                              <Download className="w-4 h-4" />
+                              <span>{t.dashboard.exportCsv}</span>
+                              <span className="text-[11px] bg-emerald-700/80 px-2 py-0.5 rounded-full font-mono font-bold">
+                                {filteredStudents.length}
+                              </span>
                             </button>
 
                             <div className="flex bg-slate-100 p-1 rounded-xl">
@@ -6309,6 +6499,23 @@ export default function App() {
                         )}
                       </div>
                       </motion.div>
+                      )}
+
+                      {dashboardTab === 'Performance' && (
+                        <motion.div
+                          key="Performance"
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="space-y-8"
+                        >
+                          <StudentGpaBarChart
+                            students={students}
+                            studentGrades={studentGrades}
+                            lang={lang}
+                          />
+                        </motion.div>
                       )}
 
                       {dashboardTab === 'Faculty' && (
@@ -7048,6 +7255,15 @@ export default function App() {
                                 </div>
                                 <button
                                   type="button"
+                                  onClick={() => setIsAndroidNativeModalOpen(true)}
+                                  className="px-4 py-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 text-white rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-emerald-200 shrink-0 cursor-pointer"
+                                  title="View & Download Kotlin Android SDK Project with BiometricPrompt"
+                                >
+                                  <Smartphone className="w-4 h-4 text-emerald-200" />
+                                  <span>{lang === 'en' ? 'Android Native App' : 'የአንድሮይድ መተግበሪያ'}</span>
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => setIsGradebookPdfModalOpen(true)}
                                   className="px-5 py-3 bg-gradient-to-r from-blue-700 via-indigo-700 to-indigo-800 hover:from-blue-800 hover:to-indigo-900 text-white rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-blue-200 shrink-0 cursor-pointer"
                                   title="Export entire Gradebook table to an official PDF file"
@@ -7058,13 +7274,28 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Gradebook Subject Filter Dropdown, Badges & Performance KPI */}
+                            <div className="mb-6">
+                              <GradebookSubjectFilter
+                                selectedSubject={gradebookSubjectFilter}
+                                onSelectSubject={setGradebookSubjectFilter}
+                                lang={lang}
+                                subjectCounts={subjectStudentCounts}
+                                metrics={selectedSubjectMetrics}
+                              />
+                            </div>
+
                             <div className="overflow-x-auto">
                               <table className="w-full text-left border-collapse">
                                 <thead>
                                   <tr className="border-b border-slate-50">
                                     <th className="pb-4 font-bold text-slate-400 text-xs uppercase tracking-wider">{t.dashboard.tableStudent}</th>
                                     <th className="pb-4 font-bold text-slate-400 text-xs uppercase tracking-wider">{t.dashboard.tableGrade}</th>
-                                    <th className="pb-4 font-bold text-slate-400 text-xs uppercase tracking-wider">{lang === 'en' ? 'Performance' : 'አፈጻጸም'}</th>
+                                    <th className="pb-4 font-bold text-slate-400 text-xs uppercase tracking-wider">
+                                      {gradebookSubjectFilter !== 'All' 
+                                        ? `${gradebookSubjectFilter} ${lang === 'en' ? 'Grade & Score' : 'ውጤት'}` 
+                                        : (lang === 'en' ? 'Performance' : 'አፈጻጸም')}
+                                    </th>
                                     <th className="pb-4 font-bold text-slate-400 text-xs uppercase tracking-wider text-right">{t.dashboard.tableActions}</th>
                                   </tr>
                                 </thead>
@@ -7103,11 +7334,50 @@ export default function App() {
                                         </p>
                                       </td>
                                     </tr>
+                                  ) : students
+                                      .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.id.toLowerCase().includes(searchQuery.toLowerCase()))
+                                      .filter(s => {
+                                        if (gradebookSubjectFilter === 'All') return true;
+                                        const grades = studentGrades[s.id] || [];
+                                        return grades.some(g => isSubjectMatch(g.subject, gradebookSubjectFilter));
+                                      }).length === 0 ? (
+                                    <tr>
+                                      <td colSpan={4} className="py-12 text-center text-slate-400">
+                                        <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-20 text-slate-400" />
+                                        <p className="font-bold text-slate-600">
+                                          {lang === 'en' 
+                                            ? `No students have grades recorded for "${gradebookSubjectFilter}"`
+                                            : `ለ"${gradebookSubjectFilter}" የተመዘገበ የተማሪ ውጤት አልተገኘም`}
+                                        </p>
+                                        <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                                          {lang === 'en'
+                                            ? 'Click "Post Grade" to record initial subject scores or switch to "All Subjects".'
+                                            : 'የመጀመሪያውን የትምህርት ውጤት ለመመዝገብ ወይም ሁሉንም ትምህርቶች ለማየት ይምረጡ።'}
+                                        </p>
+                                        <div className="mt-4 flex items-center justify-center gap-3">
+                                          <button
+                                            type="button"
+                                            onClick={() => setGradebookSubjectFilter('All')}
+                                            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                                          >
+                                            {lang === 'en' ? 'Show All Subjects' : 'ሁሉንም ትምህርቶች አሳይ'}
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
                                   ) : (
                                     students
                                       .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.id.toLowerCase().includes(searchQuery.toLowerCase()))
+                                      .filter(s => {
+                                        if (gradebookSubjectFilter === 'All') return true;
+                                        const grades = studentGrades[s.id] || [];
+                                        return grades.some(g => isSubjectMatch(g.subject, gradebookSubjectFilter));
+                                      })
                                       .map((student) => {
                                         const grades = studentGrades[student.id] || [];
+                                        const subjectGrade = gradebookSubjectFilter !== 'All'
+                                          ? grades.find(g => isSubjectMatch(g.subject, gradebookSubjectFilter))
+                                          : undefined;
                                         const gpa = grades.length > 0 
                                           ? (grades.reduce((sum, g) => {
                                               const points: Record<string, number> = { 'A': 4.0, 'A-': 3.7, 'B+': 3.3, 'B': 3.0, 'B-': 2.7, 'C+': 2.3, 'C': 2.0, 'N/A': 0.0 };
@@ -7132,14 +7402,46 @@ export default function App() {
                                               <span className="text-sm font-medium text-slate-600">{student.grade}</span>
                                             </td>
                                             <td className="py-4">
-                                              <div className="flex flex-col">
-                                                <span className="text-sm font-black text-blue-600">{gpa} GPA</span>
-                                                <div className="flex items-center gap-1">
-                                                  <span className="text-[10px] text-slate-400">({grades.length} {lang === 'en' ? 'Subjects' : 'ትምህርቶች'})</span>
-                                                  <span className="text-[10px] text-slate-400">•</span>
-                                                  <span className="text-[10px] text-slate-400">({grades.reduce((sum, g) => sum + (g.assignmentCount || g.assignments?.length || 0), 0)} {t.dashboard.assignments})</span>
+                                              {gradebookSubjectFilter !== 'All' ? (
+                                                subjectGrade ? (
+                                                  <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2">
+                                                      <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black ${
+                                                        ['A', 'A-'].includes(subjectGrade.grade) ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                                        ['B+', 'B', 'B-'].includes(subjectGrade.grade) ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                                                        'bg-amber-100 text-amber-800 border border-amber-200'
+                                                      }`}>
+                                                        {subjectGrade.grade}
+                                                      </span>
+                                                      <span className="text-xs font-bold text-slate-700">
+                                                        {subjectGrade.score !== undefined ? `${subjectGrade.score}/${subjectGrade.total || 100}` : (subjectGrade.status || 'Graded')}
+                                                      </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 mt-1">
+                                                      <span className="text-[10px] text-slate-500 font-medium">
+                                                        {lang === 'en' ? 'Attendance:' : 'መገኘት:'} {subjectGrade.attendance || '95%'}
+                                                      </span>
+                                                      <span className="text-[10px] text-slate-300">•</span>
+                                                      <span className="text-[10px] text-emerald-600 font-semibold">
+                                                        {subjectGrade.status || (lang === 'en' ? 'In Progress' : 'በሂደት ላይ')}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                ) : (
+                                                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                                                    <span className="italic">{lang === 'en' ? 'Not enrolled in' : 'አልተመዘገበም በ'} {gradebookSubjectFilter}</span>
+                                                  </div>
+                                                )
+                                              ) : (
+                                                <div className="flex flex-col">
+                                                  <span className="text-sm font-black text-blue-600">{gpa} GPA</span>
+                                                  <div className="flex items-center gap-1">
+                                                    <span className="text-[10px] text-slate-400">({grades.length} {lang === 'en' ? 'Subjects' : 'ትምህርቶች'})</span>
+                                                    <span className="text-[10px] text-slate-400">•</span>
+                                                    <span className="text-[10px] text-slate-400">({grades.reduce((sum, g) => sum + (g.assignmentCount || g.assignments?.length || 0), 0)} {t.dashboard.assignments})</span>
+                                                  </div>
                                                 </div>
-                                              </div>
+                                              )}
                                             </td>
                                             <td className="py-4 text-right">
                                               <div className="flex items-center justify-end gap-2 flex-wrap">
@@ -9295,6 +9597,23 @@ export default function App() {
     studentPage * studentsPerPage
   );
 
+  const handleExportStudentsCsv = () => {
+    if (filteredStudents.length === 0) {
+      alert(lang === 'en' ? 'No students found matching your filters to export.' : 'በተመረጡት ማጣሪያዎች የሚወጣ ተማሪ አልተገኘም።');
+      return;
+    }
+    const gradePart = studentGradeFilter !== 'All' ? `-${studentGradeFilter.toLowerCase().replace(/\s+/g, '-')}` : '';
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `abune-gorgorios-students${gradePart}-${dateStr}.csv`;
+
+    exportStudentsToCsv(filteredStudents, {
+      filename,
+      allPayments,
+      studentGrades,
+      lang
+    });
+  };
+
   const closeLoginModal = () => {
     setIsLoginModalOpen(false);
     setIsResettingPassword(false);
@@ -9398,10 +9717,20 @@ export default function App() {
             )}
           </div>
 
+          {/* Install Android App Button */}
+          <button
+            onClick={() => setIsAndroidModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold transition shadow-xs cursor-pointer"
+            title="Install Android App"
+          >
+            <Smartphone className="w-4 h-4 text-emerald-600" />
+            <span>{lang === 'en' ? 'Android App' : 'የአንድሮይድ አፕ'}</span>
+          </button>
+
           {isLoggedIn ? (
             <button 
               onClick={() => setActivePage('Dashboard')}
-              className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-4 py-2 rounded-full hover:bg-slate-100 transition-all"
+              className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-4 py-2 rounded-full hover:bg-slate-100 transition-all cursor-pointer"
             >
               <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-xs">
                 {userData.name.substring(0, 2).toUpperCase()}
@@ -9411,15 +9740,22 @@ export default function App() {
           ) : (
             <button 
               onClick={() => setIsLoginModalOpen(true)}
-              className="bg-[#2563eb] text-white px-6 py-2 rounded-full text-sm font-semibold hover:bg-blue-700 transition-all shadow-md shadow-blue-200"
+              className="bg-[#2563eb] text-white px-6 py-2 rounded-full text-sm font-semibold hover:bg-blue-700 transition-all shadow-md shadow-blue-200 cursor-pointer"
             >
               Login
             </button>
           )}
         </div>
 
-        {/* Mobile Menu Toggle */}
-        <div className="flex items-center gap-1 lg:hidden">
+        {/* Mobile Menu Toggle & Android Quick Pill */}
+        <div className="flex items-center gap-1.5 lg:hidden">
+          <button
+            onClick={() => setIsAndroidModalOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold border border-emerald-300"
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>App</span>
+          </button>
           <button 
             className="p-2 text-slate-600"
             onClick={() => setIsSearchOpen(!isSearchOpen)}
@@ -9611,24 +9947,53 @@ export default function App() {
               <form className="space-y-6" onSubmit={handleAddStudent}>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-700 ml-1">{t.dashboard.studentId}</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-bold text-slate-700 ml-1">{t.dashboard.studentId}</label>
+                      <button 
+                        type="button" 
+                        onClick={() => setNewStudent(prev => ({ ...prev, id: generateNextStudentId() }))} 
+                        className="text-[10px] font-bold text-blue-600 hover:text-blue-700 uppercase tracking-wider"
+                      >
+                        {lang === 'en' ? 'Regenerate' : 'እንደገና ፍጠር'}
+                      </button>
+                    </div>
                     <input 
                       type="text"
-                      readOnly
                       value={newStudent.id}
-                      className="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-4 text-sm outline-none text-slate-500 cursor-not-allowed"
+                      onChange={(e) => setNewStudent({ ...newStudent, id: e.target.value })}
+                      placeholder="e.g. AGS-2026-001"
+                      required
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all font-mono font-bold text-slate-800"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-700 ml-1">{lang === 'en' ? 'Password' : 'የይለፍ ቃል'}</label>
-                    <input 
-                      type="password" 
-                      placeholder="••••••••"
-                      required
-                      value={newStudent.password}
-                      onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-4 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
-                    />
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-bold text-slate-700 ml-1">{lang === 'en' ? 'Password' : 'የይለፍ ቃል'}</label>
+                      <button 
+                        type="button" 
+                        onClick={() => setNewStudent(prev => ({ ...prev, password: generatePassword() }))} 
+                        className="text-[10px] font-bold text-blue-600 hover:text-blue-700 uppercase tracking-wider"
+                      >
+                        {lang === 'en' ? 'Auto-Gen' : 'ፍጠር'}
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input 
+                        type={showNewStudentPassword ? "text" : "password"} 
+                        placeholder="••••••••"
+                        required
+                        value={newStudent.password}
+                        onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all font-mono"
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => setShowNewStudentPassword(!showNewStudentPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        {showNewStudentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -9639,8 +10004,18 @@ export default function App() {
                     placeholder={lang === 'en' ? "Enter student's full name" : "የተማሪውን ሙሉ ስም ያስገቡ"}
                     required
                     value={newStudent.name}
-                    onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-4 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      const cleanName = name.toLowerCase().trim().replace(/\s+/g, '.');
+                      setNewStudent(prev => ({
+                        ...prev,
+                        name,
+                        email: prev.email && !prev.email.endsWith('@student.ag.edu.et') 
+                          ? prev.email 
+                          : (cleanName ? `${cleanName}@student.ag.edu.et` : '')
+                      }));
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all font-medium"
                   />
                 </div>
 
@@ -9650,9 +10025,8 @@ export default function App() {
                     required
                     value={newStudent.grade}
                     onChange={(e) => setNewStudent({ ...newStudent, grade: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-4 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all font-medium"
                   >
-                    <option value="">{lang === 'en' ? 'Select Grade' : 'ክፍል ይምረጡ'}</option>
                     <option value="9th Grade">{lang === 'en' ? '9th Grade' : '9ኛ ክፍል'}</option>
                     <option value="10th Grade">{lang === 'en' ? '10th Grade' : '10ኛ ክፍል'}</option>
                     <option value="11th Grade">{lang === 'en' ? '11th Grade' : '11ኛ ክፍል'}</option>
@@ -9668,7 +10042,7 @@ export default function App() {
                     required
                     value={newStudent.email}
                     onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-4 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
                   />
                 </div>
 
@@ -11205,7 +11579,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative bg-white w-full max-w-4xl rounded-3xl overflow-hidden shadow-2xl p-8 md:p-10"
+              className="relative bg-white w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-8 md:p-10 custom-scrollbar"
             >
               <button 
                 onClick={() => {
@@ -11357,6 +11731,28 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Multi-Semester GPA Performance Bar Chart */}
+              <div className="mt-8 pt-8 border-t border-slate-100">
+                <div className="mb-4">
+                  <h4 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-blue-600" />
+                    {lang === 'en' ? 'Longitudinal Multi-Semester GPA Trends' : 'የረጅም ጊዜ ባለብዙ-ሴሚስተር የGPA አዝማሚያ'}
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    {lang === 'en'
+                      ? 'Official semester-by-semester Grade Point Average trajectory with academic standing benchmarks'
+                      : 'ይፋዊ የሴሚስተር በሴሚስተር የውጤት አማካይ ሂደት እና የአካዳሚክ ደረጃ መስፈርቶች'}
+                  </p>
+                </div>
+                <StudentGpaBarChart
+                  students={students}
+                  studentGrades={studentGrades}
+                  initialStudentId={viewingStudentGrades}
+                  isEmbedded={true}
+                  lang={lang}
+                />
               </div>
 
               <div className="mt-8 flex justify-end gap-4">
@@ -11683,7 +12079,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative bg-white w-full max-w-4xl rounded-3xl overflow-hidden shadow-2xl p-8 md:p-10"
+              className="relative bg-white w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-8 md:p-10 custom-scrollbar"
             >
               <button 
                 onClick={() => setViewingGradeHistory(null)}
@@ -11746,10 +12142,27 @@ export default function App() {
                 >
                   {lang === 'en' ? 'All Assignments' : 'ሁሉም ተግባራት'}
                 </button>
+                <button 
+                  onClick={() => setGradeHistoryView('GpaTrends')}
+                  className={`px-6 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${gradeHistoryView === 'GpaTrends' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  {lang === 'en' ? 'GPA Trends (Bar Chart)' : 'የGPA አዝማሚያ'}
+                </button>
               </div>
 
               <div className="space-y-8 max-h-[50vh] overflow-y-auto pr-4 custom-scrollbar">
-                {gradeHistoryView === 'BySubject' ? (
+                {gradeHistoryView === 'GpaTrends' ? (
+                  <div className="bg-slate-50/50 rounded-3xl border border-slate-100 p-6">
+                    <StudentGpaBarChart
+                      students={students}
+                      studentGrades={studentGrades}
+                      initialStudentId={viewingGradeHistory.id}
+                      isEmbedded={true}
+                      lang={lang}
+                    />
+                  </div>
+                ) : gradeHistoryView === 'BySubject' ? (
                   (studentGrades[viewingGradeHistory.id] || []).map((subjectGrade, idx) => (
                     <div key={idx} className="bg-slate-50/50 rounded-3xl border border-slate-100 p-6">
                       <div className="flex items-center justify-between mb-6">
@@ -12074,11 +12487,21 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-3xl p-8 shadow-2xl overflow-hidden"
+              className="relative bg-white w-[436px] max-w-full h-[600px] rounded-3xl p-6 md:p-8 shadow-2xl overflow-y-auto flex flex-col justify-between"
+              style={{ width: '436px', height: '600px' }}
             >
-              <div className="text-center mb-8">
-                <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white mx-auto mb-4 shadow-lg shadow-blue-100">
-                  <GraduationCap className="w-8 h-8" />
+              <button 
+                type="button"
+                onClick={() => setIsLoginModalOpen(false)}
+                className="absolute top-5 right-5 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 rounded-full transition-all z-10"
+                title={lang === 'en' ? 'Close' : 'ዝጋ'}
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="text-center mb-6 pt-2">
+                <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white mx-auto mb-3 shadow-lg shadow-blue-100">
+                  <GraduationCap className="w-7 h-7" />
                 </div>
                 <h2 className="text-2xl font-black text-slate-900">
                   {isResettingPassword ? (lang === 'en' ? 'Reset Password' : 'የይለፍ ቃል ቀይር') : (lang === 'en' ? 'Welcome Back' : 'እንኳን ደህና መጡ')}
@@ -12087,11 +12510,10 @@ export default function App() {
 
               {!isResettingPassword ? (
                 <>
-                  <div className="flex bg-slate-100 p-1 rounded-2xl mb-8">
+                  <div className="flex bg-slate-100 p-1 rounded-2xl mb-6">
                     <button 
                       onClick={() => setLoginType('student')}
                       className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
-
                         loginType === 'student' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                       }`}
                     >
@@ -12115,46 +12537,41 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className="space-y-6">
-                    <form onSubmit={handleEmailLogin} className="space-y-4">
+                  <div className="space-y-5">
+                    <form onSubmit={handleEmailLogin} className="space-y-3.5">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                          {loginType === 'student' ? (lang === 'en' ? 'Student ID or Email' : 'የተማሪ መታወቂያ ወይም ኢሜይል') :
+                        <label className="block text-xs font-bold text-slate-600 mb-1">
+                          {loginType === 'student' ? (lang === 'en' ? 'Student ID Number (or Email)' : 'የተማሪ መታወቂያ ቁጥር (ወይም ኢሜይል)') :
                            loginType === 'teacher' ? (lang === 'en' ? 'Teacher ID or Email' : 'የመምህር መታወቂያ ወይም ኢሜይል') :
                            (lang === 'en' ? 'Director Email' : 'የዳይሬክተር ኢሜይል')}
                         </label>
                         <div className="relative">
-                          <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                          <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                           <input 
                             type="text" 
                             value={loginEmail}
                             onChange={(e) => setLoginEmail(e.target.value)}
                             placeholder={
-                              loginType === 'student' ? (lang === 'en' ? "e.g. AGS-2024-001 or STU001" : "ለምሳሌ AGS-2024-001") :
+                              loginType === 'student' ? (lang === 'en' ? "e.g. AGS-2026-001 or S1001" : "ለምሳሌ AGS-2026-001") :
                               loginType === 'teacher' ? (lang === 'en' ? "e.g. TEA001" : "ለምሳሌ TEA001") :
                               "abebeeyob64@gmail.com"
                             }
-                            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                            className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-medium"
                             required
                           />
                         </div>
                         {loginType === 'student' && (
-                          <div className="mt-2 p-2.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-0.5">
-                            <p className="font-bold flex items-center gap-1.5 text-blue-800 text-[11px]">
-                              <span>🎓</span>
-                              {lang === 'en' ? 'Official Student Login' : 'የተመዘገቡ ተማሪዎች መግቢያ'}
-                            </p>
-                            <p className="text-[11px] text-blue-700 leading-relaxed">
-                              {lang === 'en' 
-                                ? 'Enter your assigned Student ID Number (e.g. AGS-2024-001) and password (default: abc@1234).' 
-                                : 'የተመደበልዎትን የተማሪ መታወቂያ ቁጥር (ለምሳሌ AGS-2024-001) እና የይለፍ ቃል: abc@1234 ያስገቡ።'}
-                            </p>
+                          <div className="mt-1.5 p-2 bg-blue-50/80 border border-blue-200 rounded-xl text-[11px] text-blue-900 leading-snug">
+                            <span className="font-bold text-blue-800">🎓 {lang === 'en' ? 'Student Login: ' : 'የተማሪ መግቢያ: '}</span>
+                            {lang === 'en' 
+                              ? 'Enter your Student ID and password (initial default: abc@1234).' 
+                              : 'የተማሪ መታወቂያዎን እና የይለፍ ቃል (የመጀመሪያ: abc@1234) ያስገቡ።'}
                           </div>
                         )}
                       </div>
                       <div>
                         <div className="flex items-center justify-between mb-1">
-                          <label className="block text-sm font-medium text-slate-700">Password</label>
+                          <label className="block text-xs font-bold text-slate-600">Password</label>
                           <button 
                             type="button"
                             onClick={() => {
@@ -12167,18 +12584,25 @@ export default function App() {
                           </button>
                         </div>
                         <div className="relative">
-                          <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                          <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                           <input 
-                            type="password" 
+                            type={showLoginPassword ? "text" : "password"} 
                             value={loginPassword}
                             onChange={(e) => setLoginPassword(e.target.value)}
                             placeholder="••••••••"
-                            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                            className="w-full pl-11 pr-11 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm font-mono"
                             required
                           />
+                          <button 
+                            type="button"
+                            onClick={() => setShowLoginPassword(!showLoginPassword)}
+                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          >
+                            {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
                         </div>
                         {loginPassword && (
-                          <div className="mt-2 space-y-1">
+                          <div className="mt-1.5 space-y-0.5">
                             <div className="flex gap-1 h-1">
                               {[1, 2, 3, 4].map((i) => (
                                 <div 
@@ -12189,7 +12613,7 @@ export default function App() {
                                 />
                               ))}
                             </div>
-                            <p className={`text-[10px] font-bold uppercase tracking-wider ${
+                            <p className={`text-[9px] font-bold uppercase tracking-wider ${
                               passwordStrength <= 2 ? 'text-red-500' : passwordStrength === 3 ? 'text-yellow-600' : 'text-green-600'
                             }`}>
                               {getStrengthText(passwordStrength)}
@@ -12200,27 +12624,27 @@ export default function App() {
                       <button 
                         type="submit"
                         disabled={isLoggingIn}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold text-lg transition-all shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold text-base transition-all shadow-md shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
                         {isLoggingIn ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign In'}
                       </button>
                     </form>
 
-                    <div className="relative my-6">
+                    <div className="relative my-3">
                       <div className="absolute inset-0 flex items-center">
                         <div className="w-full border-t border-slate-200"></div>
                       </div>
-                      <div className="relative flex justify-center text-sm">
-                        <span className="px-2 bg-white text-slate-500">Or continue with</span>
+                      <div className="relative flex justify-center text-xs">
+                        <span className="px-2 bg-white text-slate-400 font-medium">Or continue with</span>
                       </div>
                     </div>
 
                     <button 
                       onClick={handleGoogleLogin}
                       disabled={isLoggingIn}
-                      className="w-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-sm"
+                      className="w-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 py-2.5 rounded-xl font-semibold transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-xs text-sm"
                     >
-                      <Chrome className="w-5 h-5 text-blue-500" />
+                      <Chrome className="w-4 h-4 text-blue-500" />
                       {lang === 'en' ? 'Sign in with Google' : 'በGoogle ይግቡ'}
                     </button>
 
@@ -12228,10 +12652,10 @@ export default function App() {
                       <motion.div 
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-xl text-sm font-medium flex items-center gap-2"
+                        className="bg-red-50 border border-red-100 text-red-600 px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-2"
                       >
-                        <AlertCircle className="w-4 h-4" />
-                        {loginError}
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>{loginError}</span>
                       </motion.div>
                     )}
                   </div>
@@ -12799,33 +13223,32 @@ export default function App() {
         />
       )}
 
-      <AnimatePresence>
-        {!isOnline && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col items-center justify-center p-6 text-center"
-          >
-            <div className="w-24 h-24 bg-red-500/10 rounded-full flex items-center justify-center mb-8">
-              <WifiOff className="w-12 h-12 text-red-500" />
-            </div>
-            <h1 className="text-3xl font-bold text-white mb-4">
-              {lang === 'en' ? 'No Internet Connection' : 'የኢንተርኔት ግንኙነት የለም'}
-            </h1>
-            <p className="text-slate-400 max-w-md text-lg">
-              {lang === 'en' 
-                ? 'This application requires an active internet connection to function. Please check your WiFi or mobile data and try again.' 
-                : 'ይህ መተግበሪያ እንዲሰራ ንቁ የኢንተርኔት ግንኙነት ይፈልጋል። እባክዎ የእርስዎን WiFi ወይም የሞባይል ዳታ ይፈትሹ እና እንደገና ይሞክሩ።'}
-            </p>
-            <div className="mt-10 flex gap-4">
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse delay-75" />
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse delay-150" />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Non-intrusive PWA Offline Indicator */}
+      <OfflineIndicator />
+
+      {/* Android Mobile Bottom Navigation (Visible on mobile viewports) */}
+      <AndroidBottomNav
+        activePage={activePage}
+        setActivePage={setActivePage}
+        lang={lang}
+        isLoggedIn={isLoggedIn}
+        userRole={userRole}
+        onOpenInstall={() => setIsAndroidModalOpen(true)}
+      />
+
+      {/* Android Application PWA Installation Modal */}
+      <AndroidInstallModal
+        isOpen={isAndroidModalOpen}
+        onClose={() => setIsAndroidModalOpen(false)}
+        lang={lang}
+      />
+
+      {/* Android Native Kotlin App & SDK Biometric Prompt Code Explorer Modal */}
+      <AndroidNativeProjectModal
+        isOpen={isAndroidNativeModalOpen}
+        onClose={() => setIsAndroidNativeModalOpen(false)}
+        lang={lang}
+      />
 
     </div>
   );

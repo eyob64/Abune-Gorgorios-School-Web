@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Abune Gorgorios School</string>
+    <string name="portal_title">School Management Portal</string>
+    <string name="gradebook_title">Gradebook &amp; Performance</string>
+    <string name="subject_filter_label">Select Subject</string>
+    <string name="all_subjects">All Subjects</string>
+    <string name="gpa_label">GPA</string>
+    <string name="attendance_label">Attendance</string>
+    <string name="search_students_hint">Search students by name or ID…</string>
+</resources>
